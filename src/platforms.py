@@ -46,14 +46,9 @@ def get_tool_output(input_data: dict, platform: Platform) -> str | None:
     return None
 
 
-def format_pretool_rewrite(new_command: str, permission_decision: str = "allow") -> dict:
+def format_pretool_rewrite(new_command: str) -> dict:
     """Format a PreToolUse response that rewrites the command (Claude Code)."""
-    return {
-        "hookSpecificOutput": {
-            "permissionDecision": permission_decision,
-            "updatedInput": {"command": new_command},
-        }
-    }
+    return {"hookSpecificOutput": {"updatedInput": {"command": new_command}}}
 
 
 def format_aftertool_deny(compressed_output: str) -> dict:
