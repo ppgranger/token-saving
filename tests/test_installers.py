@@ -80,12 +80,15 @@ class TestStampVersion:
         """stamp_version must update version inside plugins[] array."""
         manifest_path = os.path.join(self.tmp_dir, "marketplace.json")
         with open(manifest_path, "w") as f:
-            json.dump({
-                "name": "test-marketplace",
-                "plugins": [
-                    {"name": "my-plugin", "version": "1.0.0", "source": "./"},
-                ],
-            }, f)
+            json.dump(
+                {
+                    "name": "test-marketplace",
+                    "plugins": [
+                        {"name": "my-plugin", "version": "1.0.0", "source": "./"},
+                    ],
+                },
+                f,
+            )
 
         stamp_version(self.tmp_dir, ["marketplace.json"])
 
@@ -100,13 +103,16 @@ class TestStampVersion:
         """If a file has both top-level version AND plugins[], stamp both."""
         manifest_path = os.path.join(self.tmp_dir, "hybrid.json")
         with open(manifest_path, "w") as f:
-            json.dump({
-                "name": "hybrid",
-                "version": "0.0.0",
-                "plugins": [
-                    {"name": "p1", "version": "0.0.0"},
-                ],
-            }, f)
+            json.dump(
+                {
+                    "name": "hybrid",
+                    "version": "0.0.0",
+                    "plugins": [
+                        {"name": "p1", "version": "0.0.0"},
+                    ],
+                },
+                f,
+            )
 
         stamp_version(self.tmp_dir, ["hybrid.json"])
 
@@ -395,33 +401,35 @@ class TestMigrateFromV1:
     def test_removes_v1_hooks_from_settings(self):
         from installers.claude import _migrate_from_v1
 
-        self._write_settings({
-            "hooks": {
-                "PreToolUse": [
-                    {
-                        "matcher": "Bash",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": "python3 /home/user/.claude/plugins/"
-                                "token-saver/claude/hook_pretool.py",
-                            }
-                        ],
-                    }
-                ],
-                "SessionStart": [
-                    {
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": "python3 /home/user/.claude/plugins/"
-                                "token-saver/src/hook_session.py",
-                            }
-                        ],
-                    }
-                ],
+        self._write_settings(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python3 /home/user/.claude/plugins/"
+                                    "token-saver/claude/hook_pretool.py",
+                                }
+                            ],
+                        }
+                    ],
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python3 /home/user/.claude/plugins/"
+                                    "token-saver/src/hook_session.py",
+                                }
+                            ],
+                        }
+                    ],
+                }
             }
-        })
+        )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             result = _migrate_from_v1()
@@ -433,20 +441,22 @@ class TestMigrateFromV1:
     def test_removes_v1_session_hooks_from_settings(self):
         from installers.claude import _migrate_from_v1
 
-        self._write_settings({
-            "hooks": {
-                "SessionStart": [
-                    {
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": "python3 /path/to/src/hook_session.py",
-                            }
-                        ],
-                    }
-                ],
+        self._write_settings(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python3 /path/to/src/hook_session.py",
+                                }
+                            ],
+                        }
+                    ],
+                }
             }
-        })
+        )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             result = _migrate_from_v1()
@@ -508,12 +518,16 @@ class TestRegisterPlugin:
 
     def _installed_plugins_path(self):
         return os.path.join(
-            self._settings_dir(), "plugins", "installed_plugins.json",
+            self._settings_dir(),
+            "plugins",
+            "installed_plugins.json",
         )
 
     def _known_marketplaces_path(self):
         return os.path.join(
-            self._settings_dir(), "plugins", "known_marketplaces.json",
+            self._settings_dir(),
+            "plugins",
+            "known_marketplaces.json",
         )
 
     def test_registers_marketplace(self):
@@ -577,12 +591,15 @@ class TestRegisterPlugin:
         km_path = self._known_marketplaces_path()
         os.makedirs(os.path.dirname(km_path), exist_ok=True)
         with open(km_path, "w") as f:
-            json.dump({
-                "claude-plugins-official": {
-                    "source": {"source": "github", "repo": "anthropics/x"},
-                    "installLocation": "/tmp/x",
+            json.dump(
+                {
+                    "claude-plugins-official": {
+                        "source": {"source": "github", "repo": "anthropics/x"},
+                        "installLocation": "/tmp/x",
+                    },
                 },
-            }, f)
+                f,
+            )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             _register_plugin(self.tmp_target, "2.0.0")
@@ -599,12 +616,15 @@ class TestRegisterPlugin:
         plugins_path = self._installed_plugins_path()
         os.makedirs(os.path.dirname(plugins_path), exist_ok=True)
         with open(plugins_path, "w") as f:
-            json.dump({
-                "version": 2,
-                "plugins": {
-                    "other@official": [{"scope": "user", "version": "1.0"}],
+            json.dump(
+                {
+                    "version": 2,
+                    "plugins": {
+                        "other@official": [{"scope": "user", "version": "1.0"}],
+                    },
                 },
-            }, f)
+                f,
+            )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             _register_plugin(self.tmp_target, "2.0.0")
@@ -632,12 +652,16 @@ class TestUnregisterPlugin:
 
     def _installed_plugins_path(self):
         return os.path.join(
-            self._settings_dir(), "plugins", "installed_plugins.json",
+            self._settings_dir(),
+            "plugins",
+            "installed_plugins.json",
         )
 
     def _known_marketplaces_path(self):
         return os.path.join(
-            self._settings_dir(), "plugins", "known_marketplaces.json",
+            self._settings_dir(),
+            "plugins",
+            "known_marketplaces.json",
         )
 
     def test_removes_from_all_files_v2(self):
@@ -648,29 +672,38 @@ class TestUnregisterPlugin:
 
         # Set up installed state in v2 format
         with open(self._installed_plugins_path(), "w") as f:
-            json.dump({
-                "version": 2,
-                "plugins": {
-                    "token-saver@token-saver-marketplace": [
-                        {"scope": "user", "version": "2.0.0"},
-                    ],
+            json.dump(
+                {
+                    "version": 2,
+                    "plugins": {
+                        "token-saver@token-saver-marketplace": [
+                            {"scope": "user", "version": "2.0.0"},
+                        ],
+                    },
                 },
-            }, f)
+                f,
+            )
 
         with open(self._known_marketplaces_path(), "w") as f:
-            json.dump({
-                "token-saver-marketplace": {
-                    "source": {"source": "github", "repo": "ppgranger/token-saver"},
+            json.dump(
+                {
+                    "token-saver-marketplace": {
+                        "source": {"source": "github", "repo": "ppgranger/token-saver"},
+                    },
                 },
-            }, f)
+                f,
+            )
 
         os.makedirs(os.path.dirname(self._settings_path()), exist_ok=True)
         with open(self._settings_path(), "w") as f:
-            json.dump({
-                "enabledPlugins": {
-                    "token-saver@token-saver-marketplace": True,
+            json.dump(
+                {
+                    "enabledPlugins": {
+                        "token-saver@token-saver-marketplace": True,
+                    },
                 },
-            }, f)
+                f,
+            )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             _unregister_plugin()
@@ -693,18 +726,26 @@ class TestUnregisterPlugin:
         os.makedirs(plugins_dir, exist_ok=True)
 
         with open(self._installed_plugins_path(), "w") as f:
-            json.dump([{
-                "name": "token-saver",
-                "marketplace": "token-saver-marketplace",
-            }], f)
+            json.dump(
+                [
+                    {
+                        "name": "token-saver",
+                        "marketplace": "token-saver-marketplace",
+                    }
+                ],
+                f,
+            )
 
         os.makedirs(os.path.dirname(self._settings_path()), exist_ok=True)
         with open(self._settings_path(), "w") as f:
-            json.dump({
-                "enabledPlugins": {
-                    "token-saver@token-saver-marketplace": True,
+            json.dump(
+                {
+                    "enabledPlugins": {
+                        "token-saver@token-saver-marketplace": True,
+                    },
                 },
-            }, f)
+                f,
+            )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             _unregister_plugin()
@@ -717,24 +758,27 @@ class TestUnregisterPlugin:
 
         os.makedirs(os.path.dirname(self._settings_path()), exist_ok=True)
         with open(self._settings_path(), "w") as f:
-            json.dump({
-                "enabledPlugins": {
-                    "token-saver@token-saver-marketplace": True,
+            json.dump(
+                {
+                    "enabledPlugins": {
+                        "token-saver@token-saver-marketplace": True,
+                    },
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": "Bash",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "python3 /p/hook_pretool.py",
+                                    },
+                                ],
+                            }
+                        ],
+                    },
                 },
-                "hooks": {
-                    "PreToolUse": [
-                        {
-                            "matcher": "Bash",
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": "python3 /p/hook_pretool.py",
-                                },
-                            ],
-                        }
-                    ],
-                },
-            }, f)
+                f,
+            )
 
         with mock.patch("installers.claude.home", return_value=self.tmp_home):
             _unregister_plugin()

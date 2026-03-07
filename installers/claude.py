@@ -63,8 +63,12 @@ def _plugin_cache_dir(version):
     Claude Code stores plugins at .../cache/<marketplace>/<plugin>/<version>/.
     """
     return os.path.join(
-        _settings_dir(), "plugins", "cache",
-        _MARKETPLACE_NAME, "token-saver", version,
+        _settings_dir(),
+        "plugins",
+        "cache",
+        _MARKETPLACE_NAME,
+        "token-saver",
+        version,
     )
 
 
@@ -259,10 +263,7 @@ def _unregister_plugin():
             if not isinstance(hooks[event], list):
                 continue
             original_len = len(hooks[event])
-            hooks[event] = [
-                entry for entry in hooks[event]
-                if not _hook_belongs_to_us(entry)
-            ]
+            hooks[event] = [entry for entry in hooks[event] if not _hook_belongs_to_us(entry)]
             if len(hooks[event]) != original_len:
                 changed = True
             if not hooks[event]:
@@ -302,10 +303,7 @@ def _migrate_from_v1():
             if not isinstance(hooks[event], list):
                 continue
             original_len = len(hooks[event])
-            hooks[event] = [
-                entry for entry in hooks[event]
-                if not _hook_belongs_to_us(entry)
-            ]
+            hooks[event] = [entry for entry in hooks[event] if not _hook_belongs_to_us(entry)]
             if len(hooks[event]) != original_len:
                 had_changes = True
             if not hooks[event]:
@@ -334,16 +332,17 @@ def _migrate_from_v1():
     # 3. Remove old cache at .../cache/token-saver-marketplace/token-saver/
     #    (our earlier v2 attempt that didn't include version in path)
     old_cache = os.path.join(
-        _settings_dir(), "plugins", "cache",
-        _MARKETPLACE_NAME, "token-saver",
+        _settings_dir(),
+        "plugins",
+        "cache",
+        _MARKETPLACE_NAME,
+        "token-saver",
     )
     if os.path.isdir(old_cache):
         # Check if this is the flat (no-version) layout by looking for
         # .claude-plugin directly inside it (the versioned layout would
         # have a version subdirectory containing .claude-plugin instead)
-        has_flat_layout = os.path.isdir(
-            os.path.join(old_cache, ".claude-plugin")
-        ) and not any(
+        has_flat_layout = os.path.isdir(os.path.join(old_cache, ".claude-plugin")) and not any(
             os.path.isdir(os.path.join(old_cache, d, ".claude-plugin"))
             for d in os.listdir(old_cache)
             if os.path.isdir(os.path.join(old_cache, d))
@@ -377,10 +376,13 @@ def install(use_symlink=False):
     install_files(target_dir, CLAUDE_FILES, use_symlink)
 
     # 3. Stamp version in BOTH plugin.json and marketplace.json
-    stamp_version(target_dir, [
-        ".claude-plugin/plugin.json",
-        ".claude-plugin/marketplace.json",
-    ])
+    stamp_version(
+        target_dir,
+        [
+            ".claude-plugin/plugin.json",
+            ".claude-plugin/marketplace.json",
+        ],
+    )
 
     # 4. Register marketplace + plugin
     _register_plugin(target_dir, version)
@@ -395,7 +397,10 @@ def uninstall():
 
     # Remove entire marketplace cache directory (all versions)
     cache_root = os.path.join(
-        _settings_dir(), "plugins", "cache", _MARKETPLACE_NAME,
+        _settings_dir(),
+        "plugins",
+        "cache",
+        _MARKETPLACE_NAME,
     )
     if os.path.isdir(cache_root):
         uninstall_dir(cache_root)

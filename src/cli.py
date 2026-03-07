@@ -93,13 +93,15 @@ def _detect_installed_targets():
     if os.name == "nt":
         appdata = os.environ.get("APPDATA", os.path.join(h, "AppData", "Roaming"))
         claude_old = os.path.join(appdata, "claude", "plugins", "token-saver")
-        claude_cache = os.path.join(appdata, "claude", "plugins", "cache",
-                                    "token-saver-marketplace", "token-saver")
+        claude_cache = os.path.join(
+            appdata, "claude", "plugins", "cache", "token-saver-marketplace", "token-saver"
+        )
         gemini_dir = os.path.join(appdata, "gemini", "extensions", "token-saver")
     else:
         claude_old = os.path.join(h, ".claude", "plugins", "token-saver")
-        claude_cache = os.path.join(h, ".claude", "plugins", "cache",
-                                    "token-saver-marketplace", "token-saver")
+        claude_cache = os.path.join(
+            h, ".claude", "plugins", "cache", "token-saver-marketplace", "token-saver"
+        )
         gemini_dir = os.path.join(h, ".gemini", "extensions", "token-saver")
 
     claude_installed = os.path.isdir(claude_old) or os.path.isdir(claude_cache)
