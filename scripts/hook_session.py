@@ -6,6 +6,7 @@ Delegates to src/hook_session.py. This wrapper exists because:
 - Gemini CLI references src/hook_session.py via ${extensionPath}
 - Both paths must work independently
 """
+
 import os
 import sys
 
