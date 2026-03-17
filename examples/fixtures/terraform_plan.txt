@@ -1,0 +1,335 @@
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_instance.web_server will be created
+  + resource "aws_instance" "web_server" {
+      + ami                          = "ami-0c55b159cbfafe1f0"
+      + arn                          = (known after apply)
+      + associate_public_ip_address  = true
+      + availability_zone            = (known after apply)
+      + cpu_core_count               = (known after apply)
+      + cpu_threads_per_core         = (known after apply)
+      + disable_api_stop             = (known after apply)
+      + disable_api_termination      = false
+      + ebs_optimized                = true
+      + get_password_data            = false
+      + host_id                      = (known after apply)
+      + host_resource_group_arn      = (known after apply)
+      + iam_instance_profile         = "web-server-profile"
+      + id                           = (known after apply)
+      + instance_initiated_shutdown_behavior = "stop"
+      + instance_state               = (known after apply)
+      + instance_type                = "t3.medium"
+      + ipv6_address_count           = (known after apply)
+      + ipv6_addresses               = (known after apply)
+      + key_name                     = "production-key"
+      + monitoring                   = true
+      + outpost_arn                  = (known after apply)
+      + password_data                = (known after apply)
+      + placement_group              = (known after apply)
+      + placement_partition_number   = (known after apply)
+      + primary_network_interface_id = (known after apply)
+      + private_dns                  = (known after apply)
+      + private_ip                   = (known after apply)
+      + public_dns                   = (known after apply)
+      + public_ip                    = (known after apply)
+      + secondary_private_ips        = (known after apply)
+      + security_groups              = (known after apply)
+      + source_dest_check            = true
+      + subnet_id                    = "subnet-0bb1c79de3EXAMPLE"
+      + tags                         = {
+          + "Environment" = "production"
+          + "Name"        = "web-server-1"
+          + "Team"        = "platform"
+        }
+      + tags_all                     = {
+          + "Environment" = "production"
+          + "Name"        = "web-server-1"
+          + "Team"        = "platform"
+        }
+      + tenancy                      = (known after apply)
+      + user_data                    = (known after apply)
+      + user_data_base64             = (known after apply)
+      + user_data_replace_on_change  = false
+      + vpc_security_group_ids       = [
+          + "sg-0a1b2c3d4e5f67890",
+        ]
+
+      + root_block_device {
+          + delete_on_termination = true
+          + device_name           = (known after apply)
+          + encrypted             = true
+          + iops                  = (known after apply)
+          + kms_key_id            = (known after apply)
+          + throughput             = (known after apply)
+          + volume_id             = (known after apply)
+          + volume_size           = 50
+          + volume_type           = "gp3"
+        }
+    }
+
+  # aws_instance.api_server will be created
+  + resource "aws_instance" "api_server" {
+      + ami                          = "ami-0c55b159cbfafe1f0"
+      + arn                          = (known after apply)
+      + associate_public_ip_address  = false
+      + availability_zone            = (known after apply)
+      + disable_api_termination      = false
+      + ebs_optimized                = true
+      + instance_type                = "t3.large"
+      + key_name                     = "production-key"
+      + monitoring                   = true
+      + subnet_id                    = "subnet-0bb1c79de3EXAMPLE"
+      + tags                         = {
+          + "Environment" = "production"
+          + "Name"        = "api-server-1"
+          + "Team"        = "platform"
+        }
+      + vpc_security_group_ids       = [
+          + "sg-0a1b2c3d4e5f67890",
+          + "sg-0b2c3d4e5f6789012",
+        ]
+
+      + root_block_device {
+          + delete_on_termination = true
+          + encrypted             = true
+          + volume_size           = 100
+          + volume_type           = "gp3"
+        }
+    }
+
+  # aws_db_instance.primary will be created
+  + resource "aws_db_instance" "primary" {
+      + allocated_storage             = 100
+      + arn                           = (known after apply)
+      + auto_minor_version_upgrade    = true
+      + availability_zone             = (known after apply)
+      + backup_retention_period       = 7
+      + backup_window                 = "03:00-04:00"
+      + db_name                       = "myapp_production"
+      + db_subnet_group_name          = "production-db-subnet"
+      + delete_automated_backups      = true
+      + endpoint                      = (known after apply)
+      + engine                        = "postgres"
+      + engine_version                = "15.4"
+      + hosted_zone_id                = (known after apply)
+      + id                            = (known after apply)
+      + identifier                    = "myapp-primary"
+      + instance_class                = "db.r6g.xlarge"
+      + kms_key_id                    = (known after apply)
+      + maintenance_window            = "Mon:04:00-Mon:05:00"
+      + monitoring_interval           = 60
+      + multi_az                      = true
+      + parameter_group_name          = "production-pg15"
+      + password                      = (sensitive value)
+      + port                          = 5432
+      + publicly_accessible           = false
+      + skip_final_snapshot           = false
+      + storage_encrypted             = true
+      + storage_type                  = "gp3"
+      + tags                          = {
+          + "Environment" = "production"
+          + "Name"        = "myapp-primary-db"
+        }
+      + username                      = "admin"
+      + vpc_security_group_ids        = [
+          + "sg-0c3d4e5f67890abcd",
+        ]
+    }
+
+  # aws_elasticache_cluster.redis will be created
+  + resource "aws_elasticache_cluster" "redis" {
+      + arn                  = (known after apply)
+      + cluster_id           = "myapp-redis"
+      + engine               = "redis"
+      + engine_version       = "7.0"
+      + node_type            = "cache.r6g.large"
+      + num_cache_nodes      = 2
+      + parameter_group_name = "default.redis7"
+      + port                 = 6379
+      + subnet_group_name    = "production-cache-subnet"
+      + tags                 = {
+          + "Environment" = "production"
+          + "Name"        = "myapp-redis"
+        }
+    }
+
+  # aws_lb.main will be created
+  + resource "aws_lb" "main" {
+      + arn                        = (known after apply)
+      + arn_suffix                 = (known after apply)
+      + dns_name                   = (known after apply)
+      + enable_deletion_protection = true
+      + id                         = (known after apply)
+      + internal                   = false
+      + load_balancer_type         = "application"
+      + name                       = "myapp-alb"
+      + security_groups            = [
+          + "sg-0d4e5f6789012bcde",
+        ]
+      + subnets                    = [
+          + "subnet-0bb1c79de3EXAMPLE",
+          + "subnet-0cc2d80ef4EXAMPLE",
+        ]
+      + tags                       = {
+          + "Environment" = "production"
+          + "Name"        = "myapp-alb"
+        }
+      + zone_id                    = (known after apply)
+    }
+
+  # aws_lb_target_group.web will be created
+  + resource "aws_lb_target_group" "web" {
+      + arn                 = (known after apply)
+      + id                  = (known after apply)
+      + name                = "myapp-web-tg"
+      + port                = 8080
+      + protocol            = "HTTP"
+      + target_type         = "instance"
+      + vpc_id              = "vpc-0a1b2c3d4e5f67890"
+
+      + health_check {
+          + enabled             = true
+          + healthy_threshold   = 3
+          + interval            = 30
+          + matcher             = "200"
+          + path                = "/api/v1/health"
+          + port                = "traffic-port"
+          + protocol            = "HTTP"
+          + timeout             = 5
+          + unhealthy_threshold = 3
+        }
+    }
+
+  # aws_lb_listener.https will be created
+  + resource "aws_lb_listener" "https" {
+      + arn               = (known after apply)
+      + certificate_arn   = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123"
+      + id                = (known after apply)
+      + load_balancer_arn = (known after apply)
+      + port              = 443
+      + protocol          = "HTTPS"
+      + ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+    }
+
+  # aws_security_group.web will be updated in-place
+  ~ resource "aws_security_group" "web" {
+        id                  = "sg-0a1b2c3d4e5f67890"
+        name                = "web-sg"
+      ~ description         = "Web server security group" -> "Web server security group - updated"
+        tags                = {
+            "Environment" = "production"
+            "Name"        = "web-sg"
+        }
+
+      + ingress {
+          + cidr_blocks      = ["0.0.0.0/0"]
+          + from_port        = 443
+          + protocol         = "tcp"
+          + to_port          = 443
+        }
+    }
+
+  # aws_route53_record.www will be created
+  + resource "aws_route53_record" "www" {
+      + fqdn    = (known after apply)
+      + id      = (known after apply)
+      + name    = "www.myapp.com"
+      + type    = "A"
+      + zone_id = "Z0123456789ABCDEFGHIJ"
+
+      + alias {
+          + evaluate_target_health = true
+          + name                   = (known after apply)
+          + zone_id                = (known after apply)
+        }
+    }
+
+  # aws_cloudwatch_log_group.app will be created
+  + resource "aws_cloudwatch_log_group" "app" {
+      + arn               = (known after apply)
+      + id                = (known after apply)
+      + name              = "/myapp/production"
+      + retention_in_days = 30
+      + tags              = {
+          + "Environment" = "production"
+        }
+    }
+
+  # aws_iam_role.app_role will be created
+  + resource "aws_iam_role" "app_role" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode({...})
+      + id                    = (known after apply)
+      + name                  = "myapp-role"
+      + tags                  = {
+          + "Environment" = "production"
+        }
+    }
+
+  # aws_s3_bucket.assets will be created
+  + resource "aws_s3_bucket" "assets" {
+      + acceleration_status = (known after apply)
+      + acl                 = (known after apply)
+      + arn                 = (known after apply)
+      + bucket              = "myapp-assets-production"
+      + id                  = (known after apply)
+      + region              = (known after apply)
+      + tags                = {
+          + "Environment" = "production"
+          + "Name"        = "myapp-assets"
+        }
+    }
+
+  # aws_sns_topic.alerts will be created
+  + resource "aws_sns_topic" "alerts" {
+      + arn    = (known after apply)
+      + id     = (known after apply)
+      + name   = "myapp-alerts"
+      + policy = (known after apply)
+      + tags   = {
+          + "Environment" = "production"
+        }
+    }
+
+  # aws_cloudwatch_metric_alarm.cpu_high will be created
+  + resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+      + arn                       = (known after apply)
+      + alarm_name                = "myapp-cpu-high"
+      + comparison_operator       = "GreaterThanThreshold"
+      + evaluation_periods        = 2
+      + id                        = (known after apply)
+      + metric_name               = "CPUUtilization"
+      + namespace                 = "AWS/EC2"
+      + period                    = 300
+      + statistic                 = "Average"
+      + threshold                 = 80
+      + alarm_actions             = (known after apply)
+    }
+
+  # aws_wafv2_web_acl.main will be destroyed
+  - resource "aws_wafv2_web_acl" "main" {
+      - arn         = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/myapp-waf/abc123" -> null
+      - capacity    = 100 -> null
+      - description = "WAF for myapp (migrating to CloudFront WAF)" -> null
+      - id          = "abc123-def456-ghi789" -> null
+      - name        = "myapp-waf" -> null
+      - scope       = "REGIONAL" -> null
+      - tags        = {
+          - "Environment" = "production"
+        } -> null
+    }
+
+Plan: 13 to add, 1 to change, 1 to destroy.
+
+Changes to Outputs:
+  + alb_dns_name   = (known after apply)
+  + db_endpoint    = (known after apply)
+  + redis_endpoint = (known after apply)
+  + web_server_ip  = (known after apply)

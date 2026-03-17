@@ -1,10 +1,27 @@
 # Token-Saver
 
-Universal token-saver extension for AI CLI tools.
-Compresses verbose command outputs (git, tests, builds, lint, ls...)
-without losing any critical information.
+[![CI](https://github.com/ppgranger/token-saver/actions/workflows/ci.yml/badge.svg)](https://github.com/ppgranger/token-saver/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)](tests/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Avg Savings](docs/assets/badge-savings.svg)](docs/processors/)
 
-Compatible with **Claude Code** and **Gemini CLI**.
+**Content-aware output compression for AI coding assistants.**
+Replaces blind truncation with intelligent, per-command strategies — preserving what the model needs, discarding what it doesn't.
+
+Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. Deterministic.
+
+### Before & After
+
+| Command | Raw Output | Compressed | Savings |
+|---------|-----------|------------|---------|
+| `git diff` (large refactor) | 2,270 tokens | 909 tokens | **60%** |
+| `pytest` (500 tests, 2 failures) | 6,744 tokens | 308 tokens | **95%** |
+| `npm install` (220 packages) | 3,844 tokens | 4 tokens | **99%** |
+| `terraform plan` (15 resources) | 1,840 tokens | 137 tokens | **93%** |
+| `kubectl get pods` (40 pods) | 1,393 tokens | 79 tokens | **94%** |
+
+> Run `token-saver benchmark <command>` to measure savings on your own workloads.
 
 ## Why
 
