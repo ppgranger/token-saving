@@ -1367,6 +1367,34 @@ class TestGenericProcessor:
         assert "━" not in result
 
 
+class TestMinifiedFileDetection:
+    """Tests for minified file detection in file_content processor."""
+
+    def setup_method(self):
+        self.p = FileContentProcessor()
+
+    def test_min_js_compressed(self):
+        """cat dist/app.min.js with large single line should be summarized."""
+        output = "a" * 100_000
+        result = self.p.process("cat dist/app.min.js", output)
+        assert "minified file" in result
+        assert "app.min.js" in result
+        assert "100,000 chars" in result
+
+    def test_bundle_js_heuristic(self):
+        """cat bundle.js with very long lines should be detected as minified."""
+        output = "\n".join(["x" * 10_000 for _ in range(5)])
+        result = self.p.process("cat bundle.js", output)
+        assert "minified file" in result
+
+    def test_normal_js_not_minified(self):
+        """Normal JS file with short lines should NOT be treated as minified."""
+        output = "\n".join(f"const x{i} = {i};" for i in range(500))
+        result = self.p.process("cat app.js", output)
+        # Source code (.js) should pass-through unchanged
+        assert result == output
+
+
 class TestNetworkProcessor:
     def setup_method(self):
         self.p = NetworkProcessor()

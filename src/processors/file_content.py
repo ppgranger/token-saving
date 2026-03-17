@@ -146,6 +146,18 @@ class FileContentProcessor(Processor):
         ext = self._extract_extension(command)
         filename = self._extract_filename(command)
 
+        # ── COMPRESS: minified files (never useful for patching) ──────
+        if self._is_minified(ext, filename, output):
+            lines = output.splitlines()
+            total_chars = len(output)
+            total_lines = len(lines)
+            preview = output[:200].replace("\n", " ")
+            return (
+                f"[minified file: {filename or 'unknown'}, "
+                f"{total_chars:,} chars, {total_lines} lines]\n"
+                f"Preview: {preview}..."
+            )
+
         # ── NEVER COMPRESS: source code ──────────────────────────────
         if ext in _SOURCE_CODE_EXTENSIONS:
             return output
@@ -225,6 +237,26 @@ class FileContentProcessor(Processor):
                 continue
             return part.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         return ""
+
+    # ── Minified file detection ─────────────────────────────────────
+
+    def _is_minified(self, ext: str, filename: str, output: str) -> bool:
+        """Detect minified files by name pattern or content heuristics."""
+        # Name-based detection
+        if re.search(r"\.min\.(js|css|html)$", filename, re.I):
+            return True
+        if re.search(r"\.bundle\.(js|css)$", filename, re.I):
+            return True
+
+        # Content heuristic: very few lines relative to total length
+        lines = output.splitlines()
+        if len(lines) <= 3 and len(output) > 5000:
+            return True
+        # Average line length > 500 chars
+        if lines and len(output) / len(lines) > 500:
+            return True
+
+        return False
 
     # ── Heuristic detection (for extensionless files) ────────────────
 
