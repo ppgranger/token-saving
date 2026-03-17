@@ -1945,6 +1945,50 @@ class TestSearchProcessor:
         assert result == output
 
 
+class TestDockerComposeLogs:
+    """Tests for docker compose log grouping by service."""
+
+    def setup_method(self):
+        self.p = DockerProcessor()
+
+    def test_compose_logs_grouped(self):
+        """docker compose logs with multiple services should group by service."""
+        lines = []
+        for i in range(200):
+            service = ["web", "api", "db"][i % 3]
+            lines.append(f"{service}  | Log line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("docker compose logs", output)
+        assert "200 log lines" in result
+        assert "--- web" in result
+        assert "--- api" in result
+        assert "--- db" in result
+
+    def test_compose_logs_errors_shown(self):
+        """Service with errors should show error lines."""
+        lines = []
+        for i in range(100):
+            lines.append(f"web  | Normal log line {i}")
+        lines.append("web  | ERROR: Connection refused")
+        lines.append("web  | Failed to connect to database")
+        for i in range(100):
+            lines.append(f"api  | API running on port {i}")
+        output = "\n".join(lines)
+        result = self.p.process("docker compose logs", output)
+        assert "ERROR: Connection refused" in result
+        assert "errors" in result
+
+    def test_compose_no_errors_shows_tail(self):
+        """Service with no errors should show last 3 lines."""
+        lines = []
+        for i in range(100):
+            lines.append(f"web  | Log line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("docker compose logs", output)
+        assert "Log line 99" in result
+        assert "0 errors" in result
+
+
 class TestKubectlProcessor:
     def setup_method(self):
         self.p = KubectlProcessor()
