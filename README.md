@@ -33,6 +33,10 @@ the actionable information (errors, modified files, results).
 Token-Saver intercepts these outputs and compresses them before they reach
 the model, preserving 100% of useful information.
 
+## How It Compares
+
+Token-Saver takes a different approach from LLM-based or caching solutions — see the [full comparison](docs/comparison.md).
+
 ## How It Works
 
 ### Architecture
