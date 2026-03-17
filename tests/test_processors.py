@@ -568,6 +568,62 @@ class TestTestOutputProcessor:
         assert result == block
 
 
+class TestPytestCoverage:
+    """Tests for pytest coverage report compression."""
+
+    def setup_method(self):
+        self.p = TestOutputProcessor()
+
+    def test_coverage_table_compressed(self):
+        """Coverage table with low-coverage files should be compressed."""
+        lines = [
+            "tests/test_app.py::test_one PASSED",
+            "tests/test_app.py::test_two PASSED",
+            "---------- coverage: 85% ----------",
+            "Name                Stmts   Miss  Cover",
+            "---------------------------------------",
+        ]
+        for i in range(20):
+            pct = 95 if i < 17 else 60
+            lines.append(f"src/mod{i}.py          100     {100 - pct}    {pct}%")
+        lines.append("TOTAL                 2000    300    85%")
+        lines.append("---------------------------------------")
+        lines.append("======================== 2 passed in 1.0s ========================")
+        output = "\n".join(lines)
+        result = self.p.process("pytest --cov", output)
+        assert "TOTAL" in result
+        assert "2000" in result
+        assert "Files below 80%" in result
+        assert "60%" in result
+        # High-coverage files should not appear
+        assert "95%" not in result
+
+    def test_no_coverage_table_unchanged(self):
+        """Output without coverage should not be modified by coverage logic."""
+        lines = [
+            "tests/test_app.py::test_one PASSED",
+            "======================== 1 passed in 0.5s ========================",
+        ]
+        output = "\n".join(lines)
+        result = self.p.process("pytest", output)
+        assert "Files below" not in result
+
+    def test_total_line_always_preserved(self):
+        """TOTAL line in coverage must always be in output."""
+        lines = [
+            "---------- coverage: 100% ----------",
+            "Name                Stmts   Miss  Cover",
+            "---------------------------------------",
+            "src/app.py            50      0   100%",
+            "TOTAL                  50      0   100%",
+            "---------------------------------------",
+            "======================== 1 passed ========================",
+        ]
+        output = "\n".join(lines)
+        result = self.p.process("pytest --cov", output)
+        assert "TOTAL" in result
+
+
 class TestBuildOutputProcessor:
     def setup_method(self):
         self.p = BuildOutputProcessor()
