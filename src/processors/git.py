@@ -175,6 +175,19 @@ class GitProcessor(Processor):
 
         return "\n".join(result) if result else output
 
+    _LOCK_FILES = {
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "poetry.lock",
+        "Pipfile.lock",
+        "Cargo.lock",
+        "composer.lock",
+        "Gemfile.lock",
+        "go.sum",
+        "bun.lockb",
+    }
+
     def _process_diff(self, output: str, command: str = "") -> str:
         lines = output.splitlines()
 
@@ -188,10 +201,51 @@ class GitProcessor(Processor):
         if lines and not any(line.startswith("diff --git") for line in lines):
             return self._process_diff_stat(lines)
 
+        # Pre-scan: separate lockfile diffs from normal diffs
+        non_lock_lines: list[str] = []
+        lockfile_summaries: list[str] = []
+        current_file = ""
+        current_file_lines = 0
+        in_lockfile = False
+
+        for line in lines:
+            if line.startswith("diff --git"):
+                # Flush previous lockfile summary
+                if in_lockfile and current_file:
+                    lockfile_summaries.append(f"diff --git {current_file}")
+                    lockfile_summaries.append(f"  (lockfile changed, {current_file_lines} lines)")
+                # Detect new file
+                m = re.match(r"^diff --git a/(.+?) b/", line)
+                filename = m.group(1).rsplit("/", 1)[-1] if m else ""
+                in_lockfile = filename in self._LOCK_FILES
+                if in_lockfile:
+                    current_file = filename
+                    current_file_lines = 0
+                else:
+                    non_lock_lines.append(line)
+                continue
+
+            if in_lockfile:
+                current_file_lines += 1
+                continue
+
+            non_lock_lines.append(line)
+
+        # Flush last lockfile
+        if in_lockfile and current_file:
+            lockfile_summaries.append(f"diff --git {current_file}")
+            lockfile_summaries.append(f"  (lockfile changed, {current_file_lines} lines)")
+
+        # Compress the non-lockfile lines, then append lockfile summaries
         max_hunk = config.get("max_diff_hunk_lines")
         max_context = config.get("max_diff_context_lines")
-        result = compress_diff(lines, max_hunk, max_context)
-        return "\n".join(result)
+        if any(line.startswith("diff --git") for line in non_lock_lines):
+            result = compress_diff(non_lock_lines, max_hunk, max_context)
+            result.extend(lockfile_summaries)
+            return "\n".join(result)
+        if lockfile_summaries:
+            return "\n".join(lockfile_summaries)
+        return "\n".join(non_lock_lines)
 
     def _process_name_list(self, lines: list[str]) -> str:
         """Compress --name-only or --name-status output: group by directory."""
@@ -224,7 +278,13 @@ class GitProcessor(Processor):
         return "\n".join(result)
 
     def _process_diff_stat(self, lines: list[str]) -> str:
-        """Compress `git diff --stat` output: strip visual bars."""
+        """Compress `git diff --stat` output: strip visual bars, group when many files."""
+        # Count stat lines (exclude summary line)
+        stat_lines = [line for line in lines if re.match(r"^\s*.+?\s+\|\s+\d+", line)]
+
+        if len(stat_lines) > 20:
+            return self._group_stat_by_dir(lines)
+
         result = []
         for line in lines:
             # Match stat lines: " path/file | 5 ++-" -> " path/file | 5"
@@ -233,6 +293,46 @@ class GitProcessor(Processor):
                 result.append(m.group(1))
             else:
                 result.append(line)
+        return "\n".join(result)
+
+    def _group_stat_by_dir(self, lines: list[str]) -> str:
+        """Group --stat output by directory when many files changed."""
+        by_dir: dict[str, list[tuple[str, str]]] = {}
+        summary_line = ""
+
+        for line in lines:
+            stripped = line.strip()
+            # Summary line: "N files changed, X insertions(+), Y deletions(-)"
+            if re.match(r"\s*\d+ files? changed", stripped):
+                summary_line = stripped
+                continue
+            # Stat line: " path/to/file.py | 42 +++---"
+            m = re.match(r"^\s*(.+?)\s+\|\s+(.+)$", stripped)
+            if m:
+                filepath = m.group(1).strip()
+                stats = m.group(2).strip()
+                parts = filepath.rsplit("/", 1)
+                dir_name = parts[0] if len(parts) > 1 else "."
+                by_dir.setdefault(dir_name, []).append((filepath, stats))
+
+        if not by_dir:
+            return "\n".join(lines)
+
+        result = []
+        for dir_name, files in sorted(by_dir.items(), key=lambda x: -len(x[1])):
+            if len(files) > 5:
+                total_changes = sum(
+                    int(s.group(1)) for _, stats in files if (s := re.search(r"(\d+)", stats))
+                )
+                result.append(f" {dir_name}/ ({len(files)} files, ~{total_changes} changes)")
+            else:
+                for filepath, stats in files:
+                    # Strip +/- visual bars from stats
+                    clean_stats = re.sub(r"\s+[+\-]+\s*$", "", stats)
+                    result.append(f" {filepath} | {clean_stats}")
+
+        if summary_line:
+            result.append(summary_line)
         return "\n".join(result)
 
     def _process_log(self, output: str, command: str = "") -> str:

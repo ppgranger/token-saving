@@ -5,6 +5,7 @@ import re
 
 from .. import config
 from .base import Processor
+from .utils import compress_log_lines
 
 # Optional docker global options that may appear before the subcommand.
 # Covers: --context <ctx>, -H <host>, --host <host>
@@ -174,36 +175,59 @@ class DockerProcessor(Processor):
         if len(lines) <= keep_head + keep_tail:
             return output
 
-        # Collect error lines and their indices
-        error_lines = []
-        for i, line in enumerate(lines):
-            if re.search(
-                r"\b(error|Error|ERROR|exception|Exception|EXCEPTION|"
-                r"fatal|Fatal|FATAL|panic|Panic|PANIC|traceback|Traceback)\b",
-                line,
-            ):
-                # Include context: 2 lines before, the error line, 2 after
-                start = max(0, i - 2)
-                end = min(len(lines), i + 3)
-                error_lines.extend(lines[start:end])
-                if end < len(lines):
-                    error_lines.append("")  # separator
+        # Detect compose log format: "service-name  | message"
+        compose_re = re.compile(r"^(\S+)\s+\|\s+(.*)$")
+        is_compose = any(compose_re.match(line) for line in lines[:20])
 
-        # Deduplicate error context (overlapping windows)
-        seen = set()
-        unique_errors = []
-        for line in error_lines:
-            if line not in seen:
-                unique_errors.append(line)
-                seen.add(line)
+        if is_compose:
+            return self._process_compose_logs(lines, compose_re)
 
-        result = lines[:keep_head]
-        if unique_errors:
-            result.append(f"\n... ({len(lines)} total lines, showing errors) ...\n")
-            result.extend(unique_errors[:50])  # Cap error lines
-        else:
-            result.append(f"\n... ({len(lines) - keep_head - keep_tail} lines truncated) ...\n")
-        result.extend(lines[-keep_tail:])
+        return compress_log_lines(
+            lines,
+            keep_head=keep_head,
+            keep_tail=keep_tail,
+            context_lines=2,
+        )
+
+    def _process_compose_logs(self, lines: list[str], compose_re: re.Pattern) -> str:
+        """Compress docker compose logs: group by service, keep errors + tail per service."""
+        service_lines: dict[str, list[str]] = {}
+        for line in lines:
+            m = compose_re.match(line)
+            if m:
+                service = m.group(1)
+                service_lines.setdefault(service, []).append(line)
+            else:
+                service_lines.setdefault("_other", []).append(line)
+
+        result = [f"{len(lines)} log lines across {len(service_lines)} services:"]
+
+        for service, svc_lines in sorted(service_lines.items()):
+            if service == "_other":
+                continue
+            error_count = sum(
+                1
+                for ln in svc_lines
+                if re.search(r"\b(error|ERROR|exception|fatal|FATAL|panic)\b", ln, re.I)
+            )
+            result.append(f"\n--- {service} ({len(svc_lines)} lines, {error_count} errors) ---")
+
+            # Show errors with context + last 3 lines
+            errors_shown: list[str] = []
+            for i, line in enumerate(svc_lines):
+                if re.search(r"\b(error|ERROR|exception|fatal|FATAL|panic)\b", line, re.I):
+                    start = max(0, i - 1)
+                    end = min(len(svc_lines), i + 2)
+                    for el in svc_lines[start:end]:
+                        if el not in errors_shown:
+                            errors_shown.append(el)
+
+            if errors_shown:
+                result.extend(errors_shown[:20])
+            # Always show last 3 lines per service
+            for line in svc_lines[-3:]:
+                if line not in errors_shown:
+                    result.append(line)
 
         return "\n".join(result)
 

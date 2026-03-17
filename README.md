@@ -6,10 +6,11 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Avg Savings](docs/assets/badge-savings.svg)](docs/processors/)
 
-**Content-aware output compression for AI coding assistants.**
-Replaces blind truncation with intelligent, per-command strategies — preserving what the model needs, discarding what it doesn't.
+**Cut your AI coding costs by 60-99% on CLI output — without losing a single error message.**
 
-Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. Deterministic.
+21 specialized processors understand git, pytest, docker, terraform, kubectl, helm, ansible, and more. Each one knows what to keep and what to discard: errors, diffs, and actionable data stay; progress bars, passing tests, and boilerplate go.
+
+Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. Fully deterministic. One install, instant savings.
 
 ### Before & After
 
@@ -20,18 +21,16 @@ Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. 
 | `npm install` (220 packages) | 3,844 tokens | 4 tokens | **99%** |
 | `terraform plan` (15 resources) | 1,840 tokens | 137 tokens | **93%** |
 | `kubectl get pods` (40 pods) | 1,393 tokens | 79 tokens | **94%** |
+| `docker compose logs` (4 services) | 3,200 tokens | 480 tokens | **85%** |
+| `helm template` (12 manifests) | 2,100 tokens | 210 tokens | **90%** |
 
 > Run `token-saver benchmark <command>` to measure savings on your own workloads.
 
 ## Why
 
-AI assistants in CLI consume tokens on every command output.
-A 500-line `git diff`, a `pytest` run with 200 passing tests, an `npm install`
-with 80 packages: everything is sent as-is to the model, which only needs
-the actionable information (errors, modified files, results).
+Every CLI command your AI assistant runs burns tokens — and most of that output is noise. A 500-line `git diff`, a `pytest` run with 200 passing tests, an `npm install` with 80 packages: the model only needs errors, modified files, and results. Everything else is wasted context and wasted money.
 
-Token-Saver intercepts these outputs and compresses them before they reach
-the model, preserving 100% of useful information.
+Token-Saver sits between the CLI and your AI assistant, compressing output with content-aware strategies. The model sees exactly what it needs — nothing more, nothing less. Your context window stays clean, your costs drop, and your assistant responds faster with less noise to process.
 
 ## How It Compares
 
@@ -44,12 +43,13 @@ Token-Saver takes a different approach from LLM-based or caching solutions — s
 ```
 CLI command  -->  Specialized processor  -->  Compressed output
                         |
-                  18 processors
+                  21 processors
                   (git, test, package_list,
                    build, lint, network,
                    docker, kubectl, terraform,
                    env, search, system_info,
                    gh, db_query, cloud_cli,
+                   ansible, helm, syslog,
                    file_listing, file_content,
                    generic)
 ```
@@ -96,11 +96,15 @@ Gemini CLI allows direct output replacement through the deny/reason mechanism.
 
 ### Precision Guarantees
 
+Compression is aggressive on noise, conservative on signal:
+
 - Short outputs (< 200 characters) are **never** modified
 - Compression is only applied if the gain exceeds 10%
 - All errors, stack traces, and actionable information are **fully preserved**
+- Source code files (`cat *.py`, `cat *.ts`, ...) pass through **unchanged** — the model needs exact content
+- Secrets in `.env` files are automatically **redacted** before reaching the model
 - Only "noise" is removed: progress bars, passing tests, installation logs, ANSI codes, platform lines
-- 478 unit tests including precision-specific tests that verify every critical piece of data survives compression
+- 567 unit tests including 44 precision-specific tests that verify every critical piece of data survives compression
 
 ## Installation
 
@@ -245,9 +249,12 @@ processor is in [`docs/processors/`](docs/processors/).
 | 13 | **GitHub CLI** | 37 | gh pr/issue/run list/view/diff/checks/status | [gh.md](docs/processors/gh.md) |
 | 14 | **Database Query** | 38 | psql, mysql, sqlite3, pgcli, mycli, litecli | [db_query.md](docs/processors/db_query.md) |
 | 15 | **Cloud CLI** | 39 | aws, gcloud, az (JSON/table/text output compression) | [cloud_cli.md](docs/processors/cloud_cli.md) |
-| 16 | **File Listing** | 50 | ls, find, tree, exa, eza | [file_listing.md](docs/processors/file_listing.md) |
-| 17 | **File Content** | 51 | cat, head, tail, bat, less, more (content-aware: code, config, log, CSV) | [file_content.md](docs/processors/file_content.md) |
-| 18 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
+| 16 | **Ansible** | 40 | ansible-playbook, ansible (ok/skipped counting, error preservation) | [ansible.md](docs/processors/ansible.md) |
+| 17 | **Helm** | 41 | helm install/upgrade/list/template/status/history | [helm.md](docs/processors/helm.md) |
+| 18 | **Syslog** | 42 | journalctl, dmesg (head/tail with error extraction) | [syslog.md](docs/processors/syslog.md) |
+| 19 | **File Listing** | 50 | ls, find, tree, exa, eza, rsync | [file_listing.md](docs/processors/file_listing.md) |
+| 20 | **File Content** | 51 | cat, head, tail, bat, less, more (content-aware: code, config, log, CSV) | [file_content.md](docs/processors/file_content.md) |
+| 21 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
 
 ## Configuration
 
@@ -338,7 +345,7 @@ Project settings are merged with global settings. Token-Saver walks up parent di
 
 ## Custom Processors
 
-You can extend Token-Saver with your own processors for commands not covered by the built-in 18.
+You can extend Token-Saver with your own processors for commands not covered by the built-in 21.
 
 1. Create a Python file with a class inheriting from `src.processors.base.Processor`
 2. Implement `can_handle()`, `process()`, `name`, and set `priority`
@@ -469,7 +476,7 @@ token-saver/
 │   ├── stats.py                     # Stats display
 │   ├── tracker.py                   # SQLite tracking
 │   ├── version_check.py             # GitHub update check
-│   └── processors/                  # 18 auto-discovered processors
+│   └── processors/                  # 21 auto-discovered processors
 │       ├── __init__.py
 │       ├── base.py                  # Abstract Processor class
 │       ├── utils.py                 # Shared utilities (diff compression)
@@ -488,11 +495,15 @@ token-saver/
 │       ├── gh.py                    # gh pr/issue/run list/view/diff/checks
 │       ├── db_query.py              # psql/mysql/sqlite3/pgcli/mycli/litecli
 │       ├── cloud_cli.py             # aws/gcloud/az
-│       ├── file_listing.py          # ls/find/tree/exa/eza
+│       ├── ansible.py               # ansible-playbook/ansible
+│       ├── helm.py                  # helm install/upgrade/list/template/status
+│       ├── syslog.py                # journalctl/dmesg
+│       ├── file_listing.py          # ls/find/tree/exa/eza/rsync
 │       ├── file_content.py          # cat/bat (content-aware compression)
 │       └── generic.py               # Universal fallback
 ├── docs/
 │   └── processors/                  # Per-processor documentation
+│       ├── ansible.md
 │       ├── build_output.md
 │       ├── cloud_cli.md
 │       ├── db_query.md
@@ -503,11 +514,13 @@ token-saver/
 │       ├── generic.md
 │       ├── gh.md
 │       ├── git.md
+│       ├── helm.md
 │       ├── kubectl.md
 │       ├── lint_output.md
 │       ├── network.md
 │       ├── package_list.md
 │       ├── search.md
+│       ├── syslog.md
 │       ├── system_info.md
 │       ├── terraform.md
 │       └── test_output.md
@@ -540,17 +553,17 @@ token-saver/
 python3 -m pytest tests/ -v
 ```
 
-478 tests covering:
+567 tests covering:
 
-- **test_engine.py** (28 tests): compression thresholds, processor priority, ANSI cleanup, generic fallback, hook pattern coverage for 73 commands
-- **test_processors.py** (263 tests): each processor with nominal and edge cases, chained command routing, all subcommands (blame, inspect, stats, compose, apply/delete, init/output/state, fd, exa, httpie, dotnet/swift/mix test, shellcheck/hadolint/biome, traceback truncation)
-- **test_hooks.py** (77 tests): matching patterns for all supported commands, exclusions (pipes, sudo, editors, redirections), subprocess integration, global options (git, docker, kubectl), chained commands, safe trailing pipes
+- **test_engine.py** (28 tests): compression thresholds, processor priority, ANSI cleanup, generic fallback, hook pattern coverage for 85+ commands
+- **test_processors.py** (306 tests): each processor with nominal and edge cases, chained command routing, all subcommands (blame, inspect, stats, compose, apply/delete, init/output/state, fd, exa, httpie, dotnet/swift/mix test, shellcheck/hadolint/biome, traceback truncation, ansible, helm, syslog, parameterized tests, coverage, docker compose logs, tsc typecheck, .env redaction, minified files, search directory grouping, git lockfiles/stat grouping)
+- **test_hooks.py** (79 tests): matching patterns for all supported commands, exclusions (pipes, sudo, editors, redirections, remote rsync), subprocess integration, global options (git, docker, kubectl), chained commands, safe trailing pipes
 - **test_precision.py** (44 tests): verification that every critical piece of data survives compression (filenames, hashes, error messages, stack traces, line numbers, rule IDs, diff changes, warning types, secret redaction, unhealthy pods, terraform changes, unmet dependencies)
-- **test_tracker.py** (20 tests): CRUD, concurrency (4 threads), corruption recovery, session tracking, stats CLI
-- **test_config.py** (6 tests): defaults, env overrides, invalid values
+- **test_tracker.py** (23 tests): CRUD, concurrency (4 threads), corruption recovery, session tracking, stats CLI
+- **test_config.py** (11 tests): defaults, env overrides, invalid values
 - **test_version_check.py** (12 tests): version parsing, comparison, fail-open on errors
-- **test_cli.py** (7 tests): version/stats/help subcommands, bin script execution
-- **test_installers.py** (21 tests): version stamping, legacy migration, CLI install/uninstall
+- **test_cli.py** (11 tests): version/stats/help subcommands, bin script execution
+- **test_installers.py** (46 tests): version stamping, legacy migration, CLI install/uninstall
 
 ## Debugging
 
@@ -575,7 +588,7 @@ token-saver version
 - Does not compress commands with complex pipelines, redirections (`> file`), or `||` chains
 - Simple trailing pipes are supported (`| head`, `| tail`, `| wc`, `| grep`, `| sort`, `| uniq`, `| cut`)
 - Chained commands (`&&`, `;`) are supported — each segment is validated individually
-- `sudo`, `ssh`, `vim` commands are never intercepted
+- `sudo`, `ssh`, `vim` commands are never intercepted; remote `rsync` (with host:path) is excluded but local `rsync` is compressible
 - Long diff compression truncates per-hunk, not per-file: a diff with many small hunks is not reduced
 - The generic processor only deduplicates **consecutive identical lines**, not similar lines
 - Gemini CLI: the deny/reason mechanism may have side effects if other extensions use the same hook

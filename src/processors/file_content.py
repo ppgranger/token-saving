@@ -16,6 +16,7 @@ import re
 
 from .. import config
 from .base import Processor
+from .utils import compress_json_value, compress_log_lines
 
 # ── File type sets ───────────────────────────────────────────────────
 
@@ -145,6 +146,22 @@ class FileContentProcessor(Processor):
         ext = self._extract_extension(command)
         filename = self._extract_filename(command)
 
+        # ── COMPRESS: minified files (never useful for patching) ──────
+        if self._is_minified(ext, filename, output):
+            lines = output.splitlines()
+            total_chars = len(output)
+            total_lines = len(lines)
+            preview = output[:200].replace("\n", " ")
+            return (
+                f"[minified file: {filename or 'unknown'}, "
+                f"{total_chars:,} chars, {total_lines} lines]\n"
+                f"Preview: {preview}..."
+            )
+
+        # ── Handle .env variants: .env.production, .env.local ────────
+        if self._is_env_file_to_redact(filename):
+            return self._compress_env_file(output.splitlines())
+
         # ── NEVER COMPRESS: source code ──────────────────────────────
         if ext in _SOURCE_CODE_EXTENSIONS:
             return output
@@ -224,6 +241,60 @@ class FileContentProcessor(Processor):
                 continue
             return part.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         return ""
+
+    # ── Minified file detection ─────────────────────────────────────
+
+    def _is_minified(self, ext: str, filename: str, output: str) -> bool:
+        """Detect minified files by name pattern or content heuristics."""
+        # Name-based detection
+        if re.search(r"\.min\.(js|css|html)$", filename, re.I):
+            return True
+        if re.search(r"\.bundle\.(js|css)$", filename, re.I):
+            return True
+
+        # Content heuristic: very few lines relative to total length
+        lines = output.splitlines()
+        if len(lines) <= 3 and len(output) > 5000:
+            return True
+        # Average line length > 500 chars
+        return bool(lines and len(output) / len(lines) > 500)
+
+    # ── .env variant detection ──────────────────────────────────────
+
+    def _is_env_file_to_redact(self, filename: str) -> bool:
+        """Detect .env variant files that should have secrets redacted.
+
+        .env exactly and .env.example/.env.template are handled by existing
+        pass-through logic (model may need exact values for editing).
+        """
+        if filename in (".env", ".env.example", ".env.template"):
+            return False
+        return bool(re.match(r"^\.env\..+$", filename, re.I))
+
+    def _compress_env_file(self, lines: list[str]) -> str:
+        """Compress .env files: redact sensitive values, keep structure."""
+        from .env import _SENSITIVE_PATTERNS  # noqa: PLC0415
+
+        result = []
+        redacted = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                result.append(line)
+                continue
+            if "=" in stripped:
+                key = stripped.split("=", 1)[0]
+                if _SENSITIVE_PATTERNS.search(key):
+                    result.append(f"{key}=***")
+                    redacted += 1
+                else:
+                    result.append(line)
+            else:
+                result.append(line)
+
+        if redacted > 0:
+            result.append(f"\n({redacted} sensitive values redacted)")
+        return "\n".join(result)
 
     # ── Heuristic detection (for extensionless files) ────────────────
 
@@ -442,33 +513,9 @@ class FileContentProcessor(Processor):
         except (json.JSONDecodeError, ValueError):
             return self._truncate_default(raw.splitlines())
 
-        result = self._summarize_json_value(data, depth=0, max_depth=2)
+        compressed = compress_json_value(data, max_depth=2)
+        result = json.dumps(compressed, indent=2, default=str)
         return f"{result}\n\n({total} total lines)"
-
-    def _summarize_json_value(self, val, depth: int, max_depth: int) -> str:
-        indent = "  " * depth
-        if isinstance(val, dict):
-            if depth >= max_depth:
-                return f"{{{len(val)} keys}}"
-            items = []
-            for k, v in val.items():
-                summarized = self._summarize_json_value(v, depth + 1, max_depth)
-                items.append(f'{indent}  "{k}": {summarized}')
-            return "{\n" + ",\n".join(items) + f"\n{indent}}}"
-        elif isinstance(val, list):
-            if len(val) == 0:
-                return "[]"
-            if len(val) <= 3:
-                inner = [self._summarize_json_value(v, depth + 1, max_depth) for v in val]
-                return "[" + ", ".join(inner) + "]"
-            first_three = [self._summarize_json_value(v, depth + 1, max_depth) for v in val[:3]]
-            return "[" + ", ".join(first_three) + f", ... ({len(val)} items total)]"
-        elif isinstance(val, str):
-            if len(val) > 100:
-                return f'"{val[:80]}..." ({len(val)} chars)'
-            return json.dumps(val)
-        else:
-            return json.dumps(val)
 
     def _compress_yaml(self, lines: list[str], total: int) -> str:
         result = []
@@ -536,59 +583,14 @@ class FileContentProcessor(Processor):
     # ── Log compression ─────────────────────────────────────────────
 
     def _compress_log(self, lines: list[str]) -> str:
-        total = len(lines)
-        context_lines = config.get("file_log_context_lines")
-
-        head = lines[:5]
-        tail = lines[-5:]
-
-        middle = lines[5:-5] if len(lines) > 10 else []
-        error_indices = set()
-        info_count = 0
-        debug_count = 0
-
-        for idx, line in enumerate(middle):
-            if _LOG_ERROR_RE.search(line):
-                for c in range(idx - context_lines, idx + context_lines + 1):
-                    if 0 <= c < len(middle):
-                        error_indices.add(c)
-            elif re.search(r"\bDEBUG\b", line, re.IGNORECASE):
-                debug_count += 1
-            elif re.search(r"\bINFO\b", line, re.IGNORECASE):
-                info_count += 1
-
-        result = head[:]
-        if middle:
-            if error_indices:
-                result.append(f"\n... (scanning {len(middle)} middle lines) ...\n")
-                sorted_indices = sorted(error_indices)
-                prev = -2
-                for idx in sorted_indices:
-                    if idx > prev + 1:
-                        gap = idx - prev - 1
-                        if prev >= 0:
-                            result.append(f"  ... ({gap} lines skipped)")
-                    result.append(middle[idx])
-                    prev = idx
-                remaining = len(middle) - 1 - prev
-                if remaining > 0:
-                    result.append(f"  ... ({remaining} lines skipped)")
-            else:
-                result.append(f"\n... ({len(middle)} lines, no errors/warnings found) ...\n")
-
-        omitted_parts = []
-        if info_count > 0:
-            omitted_parts.append(f"{info_count} INFO")
-        if debug_count > 0:
-            omitted_parts.append(f"{debug_count} DEBUG")
-        other = len(middle) - len(error_indices) - info_count - debug_count
-        if other > 0:
-            omitted_parts.append(f"{other} other")
-
-        result.extend(tail)
-        summary = ", ".join(omitted_parts) + " lines omitted" if omitted_parts else ""
-        result.append(f"\n({total} total lines{'; ' + summary if summary else ''})")
-        return "\n".join(result)
+        context = config.get("file_log_context_lines")
+        return compress_log_lines(
+            lines,
+            keep_head=5,
+            keep_tail=5,
+            error_re=_LOG_ERROR_RE,
+            context_lines=context,
+        )
 
     # ── CSV compression ─────────────────────────────────────────────
 

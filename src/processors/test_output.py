@@ -77,6 +77,7 @@ class TestOutputProcessor(Processor):
         warning_lines: list[str] = []
         summary_lines = []
         passed_count = 0
+        param_tests: dict[str, dict] = {}  # base_name -> {"passed": int, "failed": [param]}
 
         for line in lines:
             # Skip collection output
@@ -152,11 +153,25 @@ class TestOutputProcessor(Processor):
             # Count passed tests
             if re.search(r"\bPASSED\b", line):
                 passed_count += 1
+                # Track parameterized tests
+                m = re.match(r"^(\S+?)\[(.+)\]\s+PASSED", line.strip())
+                if m:
+                    base = m.group(1)
+                    param_tests.setdefault(base, {"passed": 0, "failed": []})
+                    param_tests[base]["passed"] += 1
                 continue
 
             # Keep FAILED/ERROR individual lines
             if re.search(r"\bFAILED\b|\bERROR\b", line):
-                result.append(line)
+                # Track parameterized test failures
+                m = re.match(r"^(\S+?)\[(.+)\]\s+FAILED", line.strip())
+                if m:
+                    base = m.group(1)
+                    param = m.group(2)
+                    param_tests.setdefault(base, {"passed": 0, "failed": []})
+                    param_tests[base]["failed"].append(param)
+                else:
+                    result.append(line)
                 continue
 
             # Keep final summary lines (skip "test session starts" header)
@@ -175,11 +190,81 @@ class TestOutputProcessor(Processor):
         if failure_block:
             result.extend(self._truncate_traceback(failure_block))
 
+        # Add grouped summaries for parameterized tests with failures
+        for base, info in param_tests.items():
+            if info["failed"]:
+                total = info["passed"] + len(info["failed"])
+                failed_params = ", ".join(info["failed"][:5])
+                extra = ""
+                if len(info["failed"]) > 5:
+                    extra = f", ... ({len(info['failed']) - 5} more)"
+                result.append(
+                    f"{base}: {info['passed']}/{total} passed, FAILED: [{failed_params}{extra}]"
+                )
+
         if passed_count > 0:
             result.insert(0, f"[{passed_count} tests passed]")
 
+        # Detect and compress coverage report in remaining lines
+        coverage_lines = self._extract_coverage(lines)
+        if coverage_lines:
+            result.extend(self._compress_coverage(coverage_lines))
+
         result.extend(summary_lines)
         return "\n".join(result) if result else "\n".join(lines)
+
+    def _extract_coverage(self, lines: list[str]) -> list[str]:
+        """Extract coverage table lines from pytest output."""
+        coverage_start = None
+        coverage_end = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if coverage_start is None and (
+                re.match(r"^-+ coverage", stripped) or re.match(r"^Name\s+Stmts\s+Miss", stripped)
+            ):
+                coverage_start = i
+            if (
+                coverage_start is not None
+                and i > coverage_start
+                and re.match(r"^TOTAL\s+", stripped)
+            ):
+                coverage_end = i
+                break
+        if coverage_start is None:
+            return []
+        end = coverage_end + 1 if coverage_end is not None else len(lines)
+        return lines[coverage_start:end]
+
+    def _compress_coverage(self, lines: list[str]) -> list[str]:
+        """Compress pytest coverage report: keep low-coverage files + TOTAL."""
+        result = []
+        total_line = ""
+        low_coverage_files = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("TOTAL"):
+                total_line = stripped
+                continue
+            if stripped.startswith(("Name", "-")):
+                continue
+            # Parse: filename  stmts  miss  cover%
+            m = re.match(r"^(\S+)\s+\d+\s+\d+\s+(\d+)%", stripped)
+            if m:
+                cover_pct = int(m.group(2))
+                if cover_pct < 80:
+                    low_coverage_files.append(stripped)
+
+        if total_line:
+            result.append(total_line)
+        if low_coverage_files:
+            result.append(f"Files below 80% coverage ({len(low_coverage_files)}):")
+            for f in low_coverage_files[:10]:
+                result.append(f"  {f}")
+            if len(low_coverage_files) > 10:
+                result.append(f"  ... ({len(low_coverage_files) - 10} more)")
+
+        return result
 
     def _collapse_warnings(self, warning_lines: list[str]) -> list[str]:
         """Group warnings by type, show count + one example per type."""
