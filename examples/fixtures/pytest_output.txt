@@ -1,0 +1,90 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.1, pytest-8.0.2, pluggy-1.4.0 -- /usr/bin/python3
+rootdir: /home/user/project
+configfile: pyproject.toml
+plugins: cov-4.1.0, mock-3.12.0, asyncio-0.23.4
+collected 52 items
+
+tests/test_auth.py::TestAuthenticate::test_valid_credentials PASSED      [  1%]
+tests/test_auth.py::TestAuthenticate::test_invalid_password PASSED        [  3%]
+tests/test_auth.py::TestAuthenticate::test_unknown_user PASSED            [  5%]
+tests/test_auth.py::TestAuthenticate::test_rate_limit_lockout PASSED      [  7%]
+tests/test_auth.py::TestAuthenticate::test_failed_attempt PASSED          [  9%]
+tests/test_auth.py::TestAuthenticate::test_empty_username PASSED          [ 11%]
+tests/test_auth.py::TestAuthenticate::test_empty_password PASSED          [ 13%]
+tests/test_auth.py::TestAuthenticate::test_unicode_password PASSED        [ 15%]
+tests/test_session.py::TestSessionManager::test_create_session PASSED     [ 17%]
+tests/test_session.py::TestSessionManager::test_destroy_session PASSED    [ 19%]
+tests/test_session.py::TestSessionManager::test_find_session PASSED       [ 21%]
+tests/test_session.py::TestSessionManager::test_expired_session PASSED    [ 23%]
+tests/test_session.py::TestSessionManager::test_session_limit PASSED      [ 25%]
+tests/test_session.py::TestSessionManager::test_cleanup_expired PASSED    [ 26%]
+tests/test_api.py::TestLoginEndpoint::test_login_success PASSED           [ 28%]
+tests/test_api.py::TestLoginEndpoint::test_login_missing_fields PASSED    [ 30%]
+tests/test_api.py::TestLoginEndpoint::test_login_invalid_creds PASSED     [ 32%]
+tests/test_api.py::TestLogoutEndpoint::test_logout_success PASSED         [ 34%]
+tests/test_api.py::TestLogoutEndpoint::test_logout_no_token PASSED        [ 36%]
+tests/test_api.py::TestLogoutEndpoint::test_logout_invalid_token PASSED   [ 38%]
+tests/test_api.py::TestHealthEndpoint::test_health_check PASSED           [ 40%]
+tests/test_api.py::TestUserEndpoint::test_get_profile PASSED              [ 42%]
+tests/test_api.py::TestUserEndpoint::test_list_sessions PASSED            [ 44%]
+tests/test_models.py::TestUserModel::test_create_user PASSED              [ 46%]
+tests/test_models.py::TestUserModel::test_update_user PASSED              [ 48%]
+tests/test_models.py::TestUserModel::test_delete_user PASSED              [ 50%]
+tests/test_models.py::TestUserModel::test_find_by_email PASSED            [ 51%]
+tests/test_models.py::TestUserModel::test_validate_email PASSED           [ 53%]
+tests/test_models.py::TestUserModel::test_password_hashing PASSED         [ 55%]
+tests/test_database.py::TestConnection::test_connect PASSED               [ 57%]
+tests/test_database.py::TestConnection::test_disconnect PASSED            [ 59%]
+tests/test_database.py::TestConnection::test_pool_size PASSED             [ 61%]
+tests/test_database.py::TestMigration::test_apply_migration PASSED        [ 63%]
+tests/test_database.py::TestMigration::test_rollback_migration PASSED     [ 65%]
+tests/test_database.py::TestMigration::test_migration_status PASSED       [ 67%]
+tests/test_utils.py::TestFormatters::test_format_date PASSED              [ 69%]
+tests/test_utils.py::TestFormatters::test_format_currency PASSED          [ 71%]
+tests/test_utils.py::TestFormatters::test_format_phone PASSED             [ 73%]
+tests/test_utils.py::TestValidators::test_validate_email PASSED           [ 75%]
+tests/test_utils.py::TestValidators::test_validate_phone PASSED           [ 76%]
+tests/test_utils.py::TestValidators::test_validate_url PASSED             [ 78%]
+tests/test_utils.py::TestHelpers::test_slugify PASSED                     [ 80%]
+tests/test_utils.py::TestHelpers::test_truncate PASSED                    [ 82%]
+tests/test_utils.py::TestHelpers::test_deep_merge PASSED                  [ 84%]
+tests/test_rate_limiter.py::TestRateLimiter::test_initial_state PASSED    [ 86%]
+tests/test_rate_limiter.py::TestRateLimiter::test_record_failure PASSED   [ 88%]
+tests/test_rate_limiter.py::TestRateLimiter::test_lockout PASSED          [ 90%]
+tests/test_rate_limiter.py::TestRateLimiter::test_reset PASSED            [ 92%]
+tests/test_rate_limiter.py::TestRateLimiter::test_window_expiry PASSED    [ 94%]
+tests/test_config.py::TestConfig::test_load_yaml PASSED                   [ 96%]
+tests/test_config.py::TestConfig::test_env_override FAILED                [ 98%]
+tests/test_config.py::TestConfig::test_missing_file FAILED                [100%]
+
+=================================== FAILURES ===================================
+________________________________ test_env_override _____________________________
+
+    def test_env_override(self):
+        """Test that environment variables override config file values."""
+        os.environ["APP_PORT"] = "9999"
+        config = load_config("config/settings.yaml")
+>       assert config["app"]["port"] == 9999
+E       AssertionError: assert 8080 == 9999
+E        +  where 8080 = {'name': 'MyApp', 'debug': False, 'port': 8080, ...}['port']
+
+tests/test_config.py:45: AssertionError
+________________________________ test_missing_file _____________________________
+
+    def test_missing_file(self):
+        """Test behavior when config file is missing."""
+>       config = load_config("nonexistent.yaml")
+E       FileNotFoundError: [Errno 2] No such file or directory: 'nonexistent.yaml'
+
+tests/test_config.py:52: FileNotFoundError
+=================================== warnings ===================================
+tests/test_utils.py::TestHelpers::test_deep_merge
+  /home/user/project/src/utils/helpers.py:42: DeprecationWarning: deep_merge() will require explicit strategy param in v3.0
+    warnings.warn("deep_merge() will require explicit strategy param in v3.0", DeprecationWarning)
+
+-- Docs: https://pytest.readthedocs.io/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_config.py::TestConfig::test_env_override - AssertionError: assert 8080 == 9999
+FAILED tests/test_config.py::TestConfig::test_missing_file - FileNotFoundError
+==================== 2 failed, 50 passed, 1 warning in 4.82s ==================

@@ -1,10 +1,27 @@
 # Token-Saver
 
-Universal token-saver extension for AI CLI tools.
-Compresses verbose command outputs (git, tests, builds, lint, ls...)
-without losing any critical information.
+[![CI](https://github.com/ppgranger/token-saver/actions/workflows/ci.yml/badge.svg)](https://github.com/ppgranger/token-saver/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)](tests/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Avg Savings](docs/assets/badge-savings.svg)](docs/processors/)
 
-Compatible with **Claude Code** and **Gemini CLI**.
+**Content-aware output compression for AI coding assistants.**
+Replaces blind truncation with intelligent, per-command strategies — preserving what the model needs, discarding what it doesn't.
+
+Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. Deterministic.
+
+### Before & After
+
+| Command | Raw Output | Compressed | Savings |
+|---------|-----------|------------|---------|
+| `git diff` (large refactor) | 2,270 tokens | 909 tokens | **60%** |
+| `pytest` (500 tests, 2 failures) | 6,744 tokens | 308 tokens | **95%** |
+| `npm install` (220 packages) | 3,844 tokens | 4 tokens | **99%** |
+| `terraform plan` (15 resources) | 1,840 tokens | 137 tokens | **93%** |
+| `kubectl get pods` (40 pods) | 1,393 tokens | 79 tokens | **94%** |
+
+> Run `token-saver benchmark <command>` to measure savings on your own workloads.
 
 ## Why
 
@@ -15,6 +32,10 @@ the actionable information (errors, modified files, results).
 
 Token-Saver intercepts these outputs and compresses them before they reach
 the model, preserving 100% of useful information.
+
+## How It Compares
+
+Token-Saver takes a different approach from LLM-based or caching solutions — see the [full comparison](docs/comparison.md).
 
 ## How It Works
 
@@ -194,6 +215,9 @@ token-saver version              # Print current version
 token-saver stats                # Show savings statistics
 token-saver stats --json         # JSON output for scripting
 token-saver update               # Check for and apply updates
+token-saver benchmark 'git diff' # Measure compression on a command
+token-saver benchmark 'pytest' --format json  # JSON output
+token-saver benchmark 'git log' --dry-run     # Show processor without executing
 ```
 
 If `~/.local/bin` is not in your PATH, the installer prints instructions.
@@ -258,6 +282,20 @@ export TOKEN_SAVER_DEBUG=true
 export TOKEN_SAVER_ENABLED=false
 ```
 
+### Per-Project Configuration
+
+Drop a `.token-saver.json` in your repository root to override global settings:
+
+```json
+{
+  "max_diff_hunk_lines": 300,
+  "generic_truncate_threshold": 1000,
+  "max_log_entries": 50
+}
+```
+
+Project settings are merged with global settings. Token-Saver walks up parent directories (like `.gitignore` resolution) to find the nearest `.token-saver.json`. Useful for monorepos or projects with atypical output patterns (large Terraform plans, verbose test suites, etc.).
+
 ### Complete Parameter List
 
 | Parameter | Default | Description |
@@ -295,7 +333,25 @@ export TOKEN_SAVER_ENABLED=false
 | `git_stash_threshold` | 10 | Stash entries before truncation |
 | `max_traceback_lines` | 30 | Max traceback lines before truncation |
 | `db_prune_days` | 90 | Stats retention in days |
+| `user_processors_dir` | `~/.token-saver/processors/` | Directory for custom processors |
 | `debug` | false | Enable debug logging |
+
+## Custom Processors
+
+You can extend Token-Saver with your own processors for commands not covered by the built-in 18.
+
+1. Create a Python file with a class inheriting from `src.processors.base.Processor`
+2. Implement `can_handle()`, `process()`, `name`, and set `priority`
+3. Copy the file to `~/.token-saver/processors/`
+
+```bash
+# Example: install the ansible processor
+cp examples/custom_processor/ansible_output.py ~/.token-saver/processors/
+```
+
+User processors are auto-discovered on every invocation. A broken processor (syntax error, missing import) is skipped with a warning — it never crashes the engine.
+
+See [`examples/custom_processor/`](examples/custom_processor/) for a complete example with documentation.
 
 ## Savings Tracking
 

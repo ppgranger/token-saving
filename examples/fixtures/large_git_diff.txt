@@ -1,0 +1,408 @@
+diff --git a/src/auth/login.py b/src/auth/login.py
+index 3a4b2c1..9f8e7d6 100644
+--- a/src/auth/login.py
++++ b/src/auth/login.py
+@@ -1,15 +1,22 @@
+ """Authentication module for user login."""
+
+ import hashlib
++import hmac
+ import os
++import secrets
+ from datetime import datetime, timedelta
+
++from .rate_limiter import RateLimiter
+ from .session import SessionManager
+ from .tokens import TokenGenerator
+
+
+-def authenticate(username: str, password: str) -> dict:
+-    """Authenticate a user with username and password."""
+-    user = _find_user(username)
++DEFAULT_MAX_ATTEMPTS = 5
++LOCKOUT_DURATION = timedelta(minutes=15)
++
++
++def authenticate(username: str, password: str, ip_address: str = "") -> dict:
++    """Authenticate a user with username and password.
++
++    Args:
++        username: The user's login name.
++        password: The plaintext password to verify.
++        ip_address: Client IP for rate limiting.
++
++    Returns:
++        A dict with 'token', 'expires_at', and 'user_id' on success.
++
++    Raises:
++        AuthenticationError: If credentials are invalid.
++        RateLimitError: If too many failed attempts.
++    """
++    rate_limiter = RateLimiter(ip_address)
++    if rate_limiter.is_locked_out():
++        raise RateLimitError(
++            f"Too many failed attempts. Locked out for {LOCKOUT_DURATION.seconds // 60} minutes."
++        )
++
++    user = _find_user(username)
+     if user is None:
++        rate_limiter.record_failure()
+         raise AuthenticationError("Invalid credentials")
+
+-    if not _verify_password(password, user["password_hash"]):
++    if not _verify_password(password, user["password_hash"], user.get("salt", "")):
++        rate_limiter.record_failure()
+         raise AuthenticationError("Invalid credentials")
+
++    rate_limiter.reset()
+     session = SessionManager.create_session(user["id"])
+     token = TokenGenerator.generate(
+         user_id=user["id"],
+@@ -22,25 +29,45 @@
+         "user_id": user["id"],
+     }
+
+
+-def _verify_password(password: str, stored_hash: str) -> bool:
+-    """Verify a password against its hash."""
+-    computed = hashlib.sha256(password.encode()).hexdigest()
+-    return computed == stored_hash
++def _verify_password(password: str, stored_hash: str, salt: str) -> bool:
++    """Verify a password against its hash using constant-time comparison."""
++    computed = hashlib.pbkdf2_hmac(
++        "sha256", password.encode(), salt.encode(), iterations=100_000
++    )
++    return hmac.compare_digest(computed.hex(), stored_hash)
+
+
+-def _find_user(username: str) -> dict | None:
++def _find_user(username: str, include_disabled: bool = False) -> dict | None:
+     """Look up a user by username."""
+     from .database import get_db
+
+     db = get_db()
+-    return db.users.find_one({"username": username})
++    query = {"username": username}
++    if not include_disabled:
++        query["is_active"] = True
++    return db.users.find_one(query)
++
++
++def _hash_password(password: str) -> tuple[str, str]:
++    """Hash a password with a random salt."""
++    salt = secrets.token_hex(32)
++    hashed = hashlib.pbkdf2_hmac(
++        "sha256", password.encode(), salt.encode(), iterations=100_000
++    )
++    return hashed.hex(), salt
+
+
+ class AuthenticationError(Exception):
+     """Raised when authentication fails."""
+
+
++class RateLimitError(Exception):
++    """Raised when too many failed login attempts."""
++
++
+ def logout(token: str) -> bool:
+     """Invalidate a session token."""
+-    return SessionManager.destroy_session(token)
++    session = SessionManager.find_session(token)
++    if session is None:
++        return False
++    SessionManager.destroy_session(token)
++    _log_event("logout", session["user_id"])
++    return True
+diff --git a/src/auth/session.py b/src/auth/session.py
+index 1b2c3d4..5e6f7a8 100644
+--- a/src/auth/session.py
++++ b/src/auth/session.py
+@@ -3,18 +3,35 @@
+ import os
+ import time
+ import uuid
++from dataclasses import dataclass
+ from datetime import datetime, timedelta
+
++SESSION_TTL = timedelta(hours=24)
++MAX_SESSIONS_PER_USER = 5
++
++
++@dataclass
++class Session:
++    id: str
++    user_id: str
++    created_at: datetime
++    expires_at: datetime
++    ip_address: str = ""
++    user_agent: str = ""
++
+
+ class SessionManager:
+     """Manages user sessions with Redis-backed storage."""
+
+     _store = {}
+
+     @classmethod
+-    def create_session(cls, user_id: str) -> dict:
++    def create_session(
++        cls, user_id: str, ip_address: str = "", user_agent: str = ""
++    ) -> Session:
+         """Create a new session for a user."""
++        cls._enforce_session_limit(user_id)
+         session_id = str(uuid.uuid4())
+-        session = {
+-            "id": session_id,
+-            "user_id": user_id,
+-            "created_at": datetime.utcnow().isoformat(),
+-            "expires_at": (datetime.utcnow() + timedelta(hours=24)).isoformat(),
+-        }
++        now = datetime.utcnow()
++        session = Session(
++            id=session_id,
++            user_id=user_id,
++            created_at=now,
++            expires_at=now + SESSION_TTL,
++            ip_address=ip_address,
++            user_agent=user_agent,
++        )
+         cls._store[session_id] = session
+         return session
+
+@@ -25,6 +42,19 @@
+         cls._store.pop(session_id, None)
+         return True
+
++    @classmethod
++    def find_session(cls, session_id: str) -> Session | None:
++        """Find a session by ID, returning None if expired or missing."""
++        session = cls._store.get(session_id)
++        if session is None:
++            return None
++        if datetime.utcnow() > session.expires_at:
++            cls.destroy_session(session_id)
++            return None
++        return session
++
++    @classmethod
++    def _enforce_session_limit(cls, user_id: str) -> None:
++        """Remove oldest sessions if user exceeds MAX_SESSIONS_PER_USER."""
++        user_sessions = sorted(
++            [s for s in cls._store.values() if s.user_id == user_id],
++            key=lambda s: s.created_at,
++        )
++        while len(user_sessions) >= MAX_SESSIONS_PER_USER:
++            oldest = user_sessions.pop(0)
++            cls.destroy_session(oldest.id)
++
+     @classmethod
+     def cleanup_expired(cls) -> int:
+         """Remove all expired sessions. Returns count of removed sessions."""
+diff --git a/src/api/routes.py b/src/api/routes.py
+index 7c8d9e0..2a3b4c5 100644
+--- a/src/api/routes.py
++++ b/src/api/routes.py
+@@ -1,10 +1,14 @@
+ """API route definitions."""
+
+-from flask import Flask, jsonify, request
++from flask import Flask, jsonify, request, g
++from functools import wraps
+
++from .middleware import require_auth, rate_limit
+ from ..auth.login import authenticate, logout
+
+ app = Flask(__name__)
++app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
++
+
+ @app.route("/api/v1/login", methods=["POST"])
+ def login():
+@@ -14,7 +18,10 @@
+     if not username or not password:
+         return jsonify({"error": "Missing credentials"}), 400
+
+-    result = authenticate(username, password)
++    result = authenticate(
++        username, password,
++        ip_address=request.remote_addr or "",
++    )
+     return jsonify(result), 200
+
+
+@@ -23,8 +30,34 @@
+     """Log out a user by invalidating their token."""
+     token = request.headers.get("Authorization", "").replace("Bearer ", "")
+     if not token:
+         return jsonify({"error": "No token provided"}), 401
+-    logout(token)
+-    return jsonify({"message": "Logged out"}), 200
++    success = logout(token)
++    if not success:
++        return jsonify({"error": "Invalid or expired token"}), 401
++    return jsonify({"message": "Logged out successfully"}), 200
++
++
++@app.route("/api/v1/users/me", methods=["GET"])
++@require_auth
++def get_current_user():
++    """Get the current user's profile."""
++    user = g.current_user
++    return jsonify({
++        "id": user["id"],
++        "username": user["username"],
++        "email": user["email"],
++        "created_at": user["created_at"],
++    }), 200
++
++
++@app.route("/api/v1/users/me/sessions", methods=["GET"])
++@require_auth
++def list_sessions():
++    """List all active sessions for the current user."""
++    from ..auth.session import SessionManager
++    sessions = SessionManager.get_user_sessions(g.current_user["id"])
++    return jsonify([
++        {"id": s.id, "created_at": s.created_at.isoformat(),
++         "ip_address": s.ip_address, "user_agent": s.user_agent}
++        for s in sessions
++    ]), 200
+
+
+ @app.route("/api/v1/health", methods=["GET"])
+diff --git a/tests/test_auth.py b/tests/test_auth.py
+index 4d5e6f7..8a9b0c1 100644
+--- a/tests/test_auth.py
++++ b/tests/test_auth.py
+@@ -1,12 +1,14 @@
+ """Tests for authentication module."""
+
+ import pytest
++from unittest.mock import patch, MagicMock
+
+-from src.auth.login import authenticate, AuthenticationError
++from src.auth.login import authenticate, AuthenticationError, RateLimitError
+ from src.auth.session import SessionManager
+
+
+ class TestAuthenticate:
++    @patch("src.auth.login.RateLimiter")
+     def test_valid_credentials(self, mock_rate_limiter):
+         """Test successful authentication with valid credentials."""
+         mock_rate_limiter.return_value.is_locked_out.return_value = False
+@@ -14,19 +16,42 @@
+         assert "token" in result
+         assert "user_id" in result
+
++    @patch("src.auth.login.RateLimiter")
+     def test_invalid_password(self, mock_rate_limiter):
+         """Test authentication failure with wrong password."""
+         mock_rate_limiter.return_value.is_locked_out.return_value = False
+         with pytest.raises(AuthenticationError):
+             authenticate("testuser", "wrongpassword")
+
++    @patch("src.auth.login.RateLimiter")
+     def test_unknown_user(self, mock_rate_limiter):
+         """Test authentication failure with unknown username."""
+         mock_rate_limiter.return_value.is_locked_out.return_value = False
+         with pytest.raises(AuthenticationError):
+             authenticate("nonexistent", "anypassword")
+
++    @patch("src.auth.login.RateLimiter")
++    def test_rate_limit_lockout(self, mock_rate_limiter):
++        """Test that rate limiting blocks authentication attempts."""
++        mock_rate_limiter.return_value.is_locked_out.return_value = True
++        with pytest.raises(RateLimitError):
++            authenticate("testuser", "password123", ip_address="192.168.1.1")
++
++    @patch("src.auth.login.RateLimiter")
++    def test_failed_attempt_records_failure(self, mock_rate_limiter):
++        """Test that failed attempts are recorded for rate limiting."""
++        mock_rate_limiter.return_value.is_locked_out.return_value = False
++        try:
++            authenticate("testuser", "wrongpassword")
++        except AuthenticationError:
++            pass
++        mock_rate_limiter.return_value.record_failure.assert_called_once()
+
+
+ class TestSessionManager:
+     def test_create_session(self):
+         """Test creating a new session."""
+-        session = SessionManager.create_session("user123")
+-        assert session["id"] is not None
+-        assert session["user_id"] == "user123"
++        session = SessionManager.create_session("user123", ip_address="10.0.0.1")
++        assert session.id is not None
++        assert session.user_id == "user123"
++        assert session.ip_address == "10.0.0.1"
++
++    def test_find_session(self):
++        """Test finding an existing session."""
++        created = SessionManager.create_session("user456")
++        found = SessionManager.find_session(created.id)
++        assert found is not None
++        assert found.user_id == "user456"
+
+     def test_destroy_session(self):
+         """Test destroying a session."""
+-        session = SessionManager.create_session("user123")
+-        result = SessionManager.destroy_session(session["id"])
++        session = SessionManager.create_session("user789")
++        result = SessionManager.destroy_session(session.id)
+         assert result is True
++        assert SessionManager.find_session(session.id) is None
++
++    def test_session_limit_enforcement(self):
++        """Test that old sessions are removed when limit is exceeded."""
++        for i in range(6):
++            SessionManager.create_session("user_limit_test")
++        active = [s for s in SessionManager._store.values()
++                   if s.user_id == "user_limit_test"]
++        assert len(active) <= 5
+diff --git a/config/settings.yaml b/config/settings.yaml
+index 0a1b2c3..4d5e6f7 100644
+--- a/config/settings.yaml
++++ b/config/settings.yaml
+@@ -1,8 +1,14 @@
+ # Application settings
+ app:
+   name: "MyApp"
+-  debug: true
+-  port: 5000
++  debug: false
++  port: 8080
++  workers: 4
++  max_request_size: "16MB"
++
++security:
++  rate_limit:
++    max_attempts: 5
++    lockout_minutes: 15
++    window_seconds: 300
++  session:
++    ttl_hours: 24
++    max_per_user: 5
+
+ database:
+   host: "localhost"
+-  port: 5432
++  port: 5433
+   name: "myapp_db"
++  pool_size: 10
++  max_overflow: 20
++  pool_timeout: 30
+
+ logging:
+   level: "INFO"
+-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
++  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
++  handlers:
++    - type: "console"
++      level: "INFO"
++    - type: "file"
++      path: "/var/log/myapp/app.log"
++      level: "DEBUG"
++      max_bytes: 10485760
++      backup_count: 5
