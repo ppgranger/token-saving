@@ -24,6 +24,9 @@ from src.processors.search import SearchProcessor
 from src.processors.system_info import SystemInfoProcessor
 from src.processors.terraform import TerraformProcessor
 from src.processors.test_output import TestOutputProcessor
+from src.processors.ansible import AnsibleProcessor
+from src.processors.helm import HelmProcessor
+from src.processors.syslog import SyslogProcessor
 
 
 class TestGitProcessor:
@@ -3277,3 +3280,207 @@ class TestChainedCommandProcessorRouting:
         primary = extract_primary_command("cd /deploy && kubectl get pods")
         assert primary == "kubectl get pods"
         assert p.can_handle(primary)
+
+
+class TestAnsibleProcessor:
+    def setup_method(self):
+        self.p = AnsibleProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("ansible-playbook site.yml")
+        assert self.p.can_handle("ansible all -m ping")
+        assert not self.p.can_handle("git status")
+
+    def test_empty_output(self):
+        assert self.p.process("ansible-playbook site.yml", "") == ""
+
+    def test_short_output_unchanged(self):
+        output = "\n".join(f"line {i}" for i in range(15))
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert result == output
+
+    def test_all_ok_compressed(self):
+        """Playbook with all ok tasks should compress to headers + recap."""
+        lines = []
+        lines.append("PLAY [all] ****")
+        lines.append("*" * 60)
+        for i in range(30):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append("*" * 60)
+            for h in range(20):
+                lines.append(f"ok: [host-{h}]")
+        lines.append("PLAY RECAP ****")
+        for h in range(20):
+            lines.append(f"host-{h}  : ok=30   changed=0    unreachable=0    failed=0")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "ok" in result
+        assert "PLAY RECAP" in result
+        # All 600 ok lines should be counted
+        assert "600 ok" in result
+        assert len(result) < len(output)
+
+    def test_failed_tasks_preserved(self):
+        """Failed tasks should be fully preserved with error messages."""
+        lines = []
+        lines.append("PLAY [webservers] ****")
+        for i in range(5):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append(f"ok: [host-{i}]")
+        lines.append("TASK [deploy] ****")
+        lines.append('fatal: [host-1]: FAILED! => {"msg": "Connection refused"}')
+        lines.append("TASK [rollback] ****")
+        lines.append("changed: [host-1]")
+        lines.append("PLAY RECAP ****")
+        lines.append("host-1  : ok=5   changed=1    unreachable=0    failed=1")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "FAILED" in result
+        assert "Connection refused" in result
+        assert "changed:" in result
+        assert "host-1" in result
+
+    def test_changed_tasks_preserved(self):
+        """Changed tasks should be kept in output."""
+        lines = ["PLAY [all] ****"] + ["*" * 60]
+        for i in range(10):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append("*" * 60)
+            lines.append(f"ok: [host-{i}]")
+        lines.append("TASK [update] ****")
+        lines.append("*" * 60)
+        lines.append("changed: [host-0]")
+        lines.append("PLAY RECAP ****")
+        lines.append("host-0  : ok=10   changed=1")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "changed:" in result
+
+    def test_recap_host_names_preserved(self):
+        """Host names in RECAP should be preserved."""
+        lines = ["PLAY [all] ****"] + ["*" * 60]
+        for i in range(25):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append(f"ok: [prod-server-{i}]")
+        lines.append("PLAY RECAP ****")
+        lines.append("prod-server-0  : ok=25   changed=0    unreachable=0    failed=0")
+        lines.append("prod-server-1  : ok=25   changed=0    unreachable=0    failed=0")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "prod-server-0" in result
+        assert "prod-server-1" in result
+
+
+class TestHelmProcessor:
+    def setup_method(self):
+        self.p = HelmProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("helm install myrelease mychart")
+        assert self.p.can_handle("helm upgrade myrelease mychart")
+        assert self.p.can_handle("helm list")
+        assert self.p.can_handle("helm template mychart")
+        assert self.p.can_handle("helm status myrelease")
+        assert self.p.can_handle("helm history myrelease")
+        assert not self.p.can_handle("git status")
+
+    def test_empty_output(self):
+        assert self.p.process("helm install x y", "") == ""
+
+    def test_template_many_manifests_summarized(self):
+        """helm template with 500 lines, 8 manifests should be summarized."""
+        lines = []
+        for i in range(8):
+            lines.append("---")
+            lines.append(f"kind: {'Deployment' if i < 3 else 'Service'}")
+            lines.append("metadata:")
+            lines.append(f"  name: app-{i}")
+            for j in range(60):
+                lines.append(f"  field{j}: value{j}")
+        output = "\n".join(lines)
+        result = self.p.process("helm template mychart", output)
+        assert "8 manifests" in result
+        assert "Deployment" in result
+        assert "Service" in result
+        assert len(result.splitlines()) < 20
+
+    def test_install_notes_omitted(self):
+        """helm install with NOTES section should omit NOTES."""
+        lines = [
+            "NAME: myrelease",
+            "NAMESPACE: default",
+            "STATUS: deployed",
+            "REVISION: 1",
+            "NOTES:",
+        ]
+        for i in range(30):
+            lines.append(f"  Get the application URL by running line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("helm install myrelease mychart", output)
+        assert "STATUS: deployed" in result
+        assert "NOTES section omitted" in result
+        assert "Get the application URL" not in result
+
+    def test_list_many_releases_truncated(self):
+        """helm list with 50 releases should be truncated."""
+        lines = ["NAME\tNAMESPACE\tREVISION\tSTATUS"]
+        for i in range(50):
+            lines.append(f"release-{i}\tdefault\t1\tdeployed")
+        output = "\n".join(lines)
+        result = self.p.process("helm list", output)
+        assert "more releases" in result
+        assert len(result.splitlines()) < 25
+
+    def test_short_output_unchanged(self):
+        """Short output should not be compressed."""
+        output = "NAME: myrelease\nSTATUS: deployed"
+        result = self.p.process("helm install x y", output)
+        assert result == output
+
+
+class TestSyslogProcessor:
+    def setup_method(self):
+        self.p = SyslogProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("journalctl -u nginx")
+        assert self.p.can_handle("dmesg")
+        assert not self.p.can_handle("git status")
+
+    def test_empty_output(self):
+        assert self.p.process("journalctl", "") == ""
+
+    def test_short_output_unchanged(self):
+        output = "\n".join(f"line {i}" for i in range(25))
+        result = self.p.process("dmesg", output)
+        assert result == output
+
+    def test_journalctl_with_errors(self):
+        """journalctl with 500 lines and errors should preserve errors."""
+        lines = []
+        for i in range(500):
+            if i == 250:
+                lines.append("Mar 17 10:00:00 host nginx[1234]: ERROR: connection refused")
+            elif i == 251:
+                lines.append("Mar 17 10:00:01 host nginx[1234]: retrying connection")
+            elif i == 300:
+                lines.append("Mar 17 10:05:00 host nginx[1234]: fatal: out of memory")
+            else:
+                lines.append(f"Mar 17 10:00:00 host nginx[1234]: normal log line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("journalctl -u nginx", output)
+        assert "ERROR" in result
+        assert "fatal" in result
+        assert len(result) < len(output)
+
+    def test_dmesg_no_errors_truncated(self):
+        """dmesg with 200 lines and no errors should show head + tail."""
+        lines = [f"[{i}.000000] Normal kernel message {i}" for i in range(200)]
+        output = "\n".join(lines)
+        result = self.p.process("dmesg", output)
+        assert "truncated" in result
+        # Head preserved
+        assert "Normal kernel message 0" in result
+        # Tail preserved
+        assert "Normal kernel message 199" in result
+        assert len(result) < len(output)

@@ -210,9 +210,9 @@ class TestProcessorRegistry:
     """Tests for auto-discovery and the processor registry."""
 
     def test_discover_processors_finds_all(self):
-        """Auto-discovery should find all 18 processors."""
+        """Auto-discovery should find all 21 processors."""
         processors = discover_processors()
-        assert len(processors) == 18
+        assert len(processors) == 21
 
     def test_discover_processors_sorted_by_priority(self):
         """Processors must be returned in ascending priority order."""
