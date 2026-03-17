@@ -45,6 +45,10 @@ class BuildOutputProcessor(Processor):
         if not output or not output.strip():
             return output
 
+        # tsc --noEmit is a type-check (lint), not a build — group errors by code
+        if re.search(r"\btsc\b.*--noEmit", command):
+            return self._process_tsc_typecheck(output)
+
         # Piped output may be partial — skip aggressive summarization to
         # avoid claiming "Build succeeded" when errors were piped away.
         if "|" in command:
@@ -279,6 +283,47 @@ class BuildOutputProcessor(Processor):
                 result.append(line)
                 seen.add(line)
 
+        return "\n".join(result)
+
+    def _process_tsc_typecheck(self, output: str) -> str:
+        """Compress tsc --noEmit: group errors by TS error code."""
+        lines = output.splitlines()
+        by_code: dict[str, list[str]] = {}
+        summary_line = ""
+
+        for line in lines:
+            stripped = line.strip()
+            # TS error format: src/file.ts(10,5): error TS2322: message
+            m = re.match(r"^(.+?)\(\d+,\d+\):\s+error\s+(TS\d+):\s+(.+)$", stripped)
+            if not m:
+                # Also match: src/file.ts:10:5 - error TS2322: message
+                m = re.match(r"^(.+?):\d+:\d+\s+-\s+error\s+(TS\d+):\s+(.+)$", stripped)
+            if m:
+                code = m.group(2)
+                by_code.setdefault(code, []).append(stripped)
+                continue
+            # Summary line: Found N errors in M files.
+            if re.match(r"^Found \d+ error", stripped):
+                summary_line = stripped
+
+        if not by_code:
+            return output
+
+        total = sum(len(v) for v in by_code.values())
+        result = [f"{total} type errors across {len(by_code)} codes:"]
+        for code, violations in sorted(by_code.items(), key=lambda x: -len(x[1])):
+            count = len(violations)
+            if count > 3:
+                result.append(f"  {code}: {count} occurrences")
+                for v in violations[:2]:
+                    result.append(f"    {v}")
+                result.append(f"    ... ({count - 2} more)")
+            else:
+                for v in violations:
+                    result.append(f"  {v}")
+
+        if summary_line:
+            result.append(summary_line)
         return "\n".join(result)
 
     def _is_progress_line(self, line: str) -> bool:

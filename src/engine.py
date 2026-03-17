@@ -1,7 +1,14 @@
 """Compression engine: orchestrates processors with configurable thresholds."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from . import config
 from .processors import discover_processors
+
+if TYPE_CHECKING:
+    from .processors.base import Processor
 
 
 class CompressionEngine:
@@ -11,7 +18,10 @@ class CompressionEngine:
     second pass to clean up ANSI codes, dedup remaining repetitions, etc.
     """
 
-    def __init__(self):
+    processors: list[Processor]
+    _generic: Processor
+
+    def __init__(self) -> None:
         self.processors = discover_processors()
         self._generic = self.processors[-1]  # Last = GenericProcessor (priority 999)
 

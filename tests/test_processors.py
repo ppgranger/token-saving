@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.chain_utils import extract_primary_command
+from src.processors.ansible import AnsibleProcessor
 from src.processors.build_output import BuildOutputProcessor
 from src.processors.cloud_cli import CloudCliProcessor
 from src.processors.db_query import DbQueryProcessor
@@ -16,11 +17,13 @@ from src.processors.file_listing import FileListingProcessor
 from src.processors.generic import GenericProcessor
 from src.processors.gh import GhProcessor
 from src.processors.git import GitProcessor
+from src.processors.helm import HelmProcessor
 from src.processors.kubectl import KubectlProcessor
 from src.processors.lint_output import LintOutputProcessor
 from src.processors.network import NetworkProcessor
 from src.processors.package_list import PackageListProcessor
 from src.processors.search import SearchProcessor
+from src.processors.syslog import SyslogProcessor
 from src.processors.system_info import SystemInfoProcessor
 from src.processors.terraform import TerraformProcessor
 from src.processors.test_output import TestOutputProcessor
@@ -566,6 +569,107 @@ class TestTestOutputProcessor:
         block = ["    line 1", "    line 2", "    line 3"]
         result = self.p._truncate_traceback(block)
         assert result == block
+
+
+class TestPytestParameterized:
+    """Tests for parameterized test grouping."""
+
+    def setup_method(self):
+        self.p = TestOutputProcessor()
+
+    def test_all_param_passed_grouped(self):
+        """50 parameterized tests all PASSED should show just the count."""
+        lines = []
+        for i in range(50):
+            lines.append(f"tests/test_math.py::test_add[{i}] PASSED")
+        lines.append("======================== 50 passed in 1.0s ========================")
+        output = "\n".join(lines)
+        result = self.p.process("pytest -v", output)
+        assert "50 tests passed" in result
+        # Individual param lines should not appear
+        assert "test_add[0] PASSED" not in result
+
+    def test_param_with_failures_grouped(self):
+        """Parameterized tests with failures should show grouped summary."""
+        lines = []
+        for i in range(47):
+            lines.append(f"tests/test_math.py::test_add[{i}] PASSED")
+        for i in range(47, 50):
+            lines.append(f"tests/test_math.py::test_add[{i}] FAILED")
+        lines.append("======================== 47 passed, 3 failed ========================")
+        output = "\n".join(lines)
+        result = self.p.process("pytest -v", output)
+        assert "47/50 passed" in result
+        assert "FAILED: [47, 48, 49]" in result
+
+    def test_non_param_unchanged(self):
+        """Non-parameterized tests should not trigger grouping."""
+        lines = [
+            "tests/test_app.py::test_one PASSED",
+            "tests/test_app.py::test_two PASSED",
+            "tests/test_app.py::test_three FAILED",
+            "======================== 2 passed, 1 failed ========================",
+        ]
+        output = "\n".join(lines)
+        result = self.p.process("pytest -v", output)
+        assert "2 tests passed" in result
+        assert "test_three FAILED" in result
+
+
+class TestPytestCoverage:
+    """Tests for pytest coverage report compression."""
+
+    def setup_method(self):
+        self.p = TestOutputProcessor()
+
+    def test_coverage_table_compressed(self):
+        """Coverage table with low-coverage files should be compressed."""
+        lines = [
+            "tests/test_app.py::test_one PASSED",
+            "tests/test_app.py::test_two PASSED",
+            "---------- coverage: 85% ----------",
+            "Name                Stmts   Miss  Cover",
+            "---------------------------------------",
+        ]
+        for i in range(20):
+            pct = 95 if i < 17 else 60
+            lines.append(f"src/mod{i}.py          100     {100 - pct}    {pct}%")
+        lines.append("TOTAL                 2000    300    85%")
+        lines.append("---------------------------------------")
+        lines.append("======================== 2 passed in 1.0s ========================")
+        output = "\n".join(lines)
+        result = self.p.process("pytest --cov", output)
+        assert "TOTAL" in result
+        assert "2000" in result
+        assert "Files below 80%" in result
+        assert "60%" in result
+        # High-coverage files should not appear
+        assert "95%" not in result
+
+    def test_no_coverage_table_unchanged(self):
+        """Output without coverage should not be modified by coverage logic."""
+        lines = [
+            "tests/test_app.py::test_one PASSED",
+            "======================== 1 passed in 0.5s ========================",
+        ]
+        output = "\n".join(lines)
+        result = self.p.process("pytest", output)
+        assert "Files below" not in result
+
+    def test_total_line_always_preserved(self):
+        """TOTAL line in coverage must always be in output."""
+        lines = [
+            "---------- coverage: 100% ----------",
+            "Name                Stmts   Miss  Cover",
+            "---------------------------------------",
+            "src/app.py            50      0   100%",
+            "TOTAL                  50      0   100%",
+            "---------------------------------------",
+            "======================== 1 passed ========================",
+        ]
+        output = "\n".join(lines)
+        result = self.p.process("pytest --cov", output)
+        assert "TOTAL" in result
 
 
 class TestBuildOutputProcessor:
@@ -1266,6 +1370,75 @@ class TestGenericProcessor:
         assert "━" not in result
 
 
+class TestEnvVariantDetection:
+    """Tests for .env variant file handling."""
+
+    def setup_method(self):
+        self.p = FileContentProcessor()
+
+    def test_env_production_redacted(self):
+        """cat .env.production should redact sensitive values."""
+        output = "\n".join(
+            [
+                "APP_NAME=myapp",
+                "API_KEY=secret123",
+                "DATABASE_URL=postgres://user:pass@host/db",
+                "DEBUG=true",
+            ]
+        )
+        result = self.p.process("cat .env.production", output)
+        assert "API_KEY=***" in result
+        assert "DATABASE_URL=***" in result
+        assert "APP_NAME=myapp" in result
+        assert "DEBUG=true" in result
+        assert "sensitive values redacted" in result
+
+    def test_env_example_passthrough(self):
+        """cat .env.example should pass through (template file)."""
+        output = "\n".join(
+            [
+                "API_KEY=your_api_key_here",
+                "SECRET=change_me",
+            ]
+        )
+        result = self.p.process("cat .env.example", output)
+        assert result == output
+
+    def test_env_exact_passthrough(self):
+        """cat .env should still pass through unchanged (existing behavior)."""
+        output = "\n".join(f"KEY_{i}=value_{i}" for i in range(500))
+        result = self.p.process("cat .env", output)
+        assert result == output
+
+
+class TestMinifiedFileDetection:
+    """Tests for minified file detection in file_content processor."""
+
+    def setup_method(self):
+        self.p = FileContentProcessor()
+
+    def test_min_js_compressed(self):
+        """cat dist/app.min.js with large single line should be summarized."""
+        output = "a" * 100_000
+        result = self.p.process("cat dist/app.min.js", output)
+        assert "minified file" in result
+        assert "app.min.js" in result
+        assert "100,000 chars" in result
+
+    def test_bundle_js_heuristic(self):
+        """cat bundle.js with very long lines should be detected as minified."""
+        output = "\n".join(["x" * 10_000 for _ in range(5)])
+        result = self.p.process("cat bundle.js", output)
+        assert "minified file" in result
+
+    def test_normal_js_not_minified(self):
+        """Normal JS file with short lines should NOT be treated as minified."""
+        output = "\n".join(f"const x{i} = {i};" for i in range(500))
+        result = self.p.process("cat app.js", output)
+        # Source code (.js) should pass-through unchanged
+        assert result == output
+
+
 class TestNetworkProcessor:
     def setup_method(self):
         self.p = NetworkProcessor()
@@ -1777,6 +1950,80 @@ class TestSearchProcessor:
         output = "src/main.py\nsrc/util.py\nsrc/app.py"
         result = self.p.process("fd -e py", output)
         assert result == output
+
+
+class TestSearchDirectoryGrouping:
+    """Tests for search result directory grouping with large result sets."""
+
+    def setup_method(self):
+        self.p = SearchProcessor()
+
+    def test_many_files_grouped_by_dir(self):
+        """rg with 40+ files should group by directory."""
+        lines = []
+        for d in range(12):
+            for f in range(4):
+                for m in range(3):
+                    lines.append(f"src/dir{d}/file{f}.py:{m + 1}:TODO: fix this {d}-{f}-{m}")
+        output = "\n".join(lines)
+        result = self.p.process("rg TODO", output)
+        assert "directories" in result
+        assert "src/dir0/" in result
+
+    def test_few_files_not_grouped(self):
+        """rg with 10 files should use per-file grouping."""
+        lines = []
+        for f in range(10):
+            lines.append(f"src/file{f}.py:1:TODO fix")
+            lines.append(f"src/file{f}.py:5:TODO cleanup")
+        output = "\n".join(lines)
+        result = self.p.process("rg TODO", output)
+        # Should use normal per-file grouping, not directory grouping
+        assert "directories" not in result
+
+
+class TestDockerComposeLogs:
+    """Tests for docker compose log grouping by service."""
+
+    def setup_method(self):
+        self.p = DockerProcessor()
+
+    def test_compose_logs_grouped(self):
+        """docker compose logs with multiple services should group by service."""
+        lines = []
+        for i in range(200):
+            service = ["web", "api", "db"][i % 3]
+            lines.append(f"{service}  | Log line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("docker compose logs", output)
+        assert "200 log lines" in result
+        assert "--- web" in result
+        assert "--- api" in result
+        assert "--- db" in result
+
+    def test_compose_logs_errors_shown(self):
+        """Service with errors should show error lines."""
+        lines = []
+        for i in range(100):
+            lines.append(f"web  | Normal log line {i}")
+        lines.append("web  | ERROR: Connection refused")
+        lines.append("web  | Failed to connect to database")
+        for i in range(100):
+            lines.append(f"api  | API running on port {i}")
+        output = "\n".join(lines)
+        result = self.p.process("docker compose logs", output)
+        assert "ERROR: Connection refused" in result
+        assert "errors" in result
+
+    def test_compose_no_errors_shows_tail(self):
+        """Service with no errors should show last 3 lines."""
+        lines = []
+        for i in range(100):
+            lines.append(f"web  | Log line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("docker compose logs", output)
+        assert "Log line 99" in result
+        assert "0 errors" in result
 
 
 class TestKubectlProcessor:
@@ -2567,6 +2814,102 @@ class TestGitStatusShortBranch:
         assert "On branch feature/foo" in result
 
 
+class TestGitDiffStatGrouping:
+    """Tests for --stat directory grouping with many files."""
+
+    def setup_method(self):
+        self.p = GitProcessor()
+
+    def test_stat_many_files_grouped(self):
+        """git diff --stat with 50+ files should group by directory."""
+        lines = []
+        for i in range(25):
+            lines.append(f" src/components/file{i}.tsx | 10 ++++------")
+        for i in range(25):
+            lines.append(f" src/utils/helper{i}.ts | 5 ++---")
+        lines.append(" 50 files changed, 375 insertions(+), 375 deletions(-)")
+        output = "\n".join(lines)
+        result = self.p.process("git diff --stat", output)
+        assert "src/components/" in result
+        assert "25 files" in result
+        assert "src/utils/" in result
+        assert "50 files changed" in result
+
+    def test_stat_few_files_not_grouped(self):
+        """git diff --stat with few files should not group."""
+        lines = [
+            " src/app.py | 5 ++---",
+            " src/utils.py | 3 +--",
+            " 2 files changed, 3 insertions(+), 5 deletions(-)",
+        ]
+        output = "\n".join(lines)
+        result = self.p.process("git diff --stat", output)
+        assert "app.py" in result
+        assert "utils.py" in result
+
+
+class TestGitLockfileDiff:
+    """Tests for lockfile detection in git diff output."""
+
+    def setup_method(self):
+        self.p = GitProcessor()
+
+    def test_lockfile_only_diff_summarized(self):
+        """A diff containing only package-lock.json should be summarized."""
+        lock_lines = ["diff --git a/package-lock.json b/package-lock.json"]
+        lock_lines.append("index abc1234..def5678 100644")
+        lock_lines.append("--- a/package-lock.json")
+        lock_lines.append("+++ b/package-lock.json")
+        lock_lines.append("@@ -1,100 +1,100 @@")
+        for i in range(500):
+            lock_lines.append(f'+    "pkg-{i}": "{i}.0.0",')
+        output = "\n".join(lock_lines)
+        result = self.p.process("git diff", output)
+        assert "lockfile changed" in result
+        assert "package-lock.json" in result
+        assert len(result.splitlines()) <= 5
+
+    def test_mixed_lockfile_and_normal(self):
+        """Lockfile should be summarized, normal file compressed normally."""
+        lines = [
+            "diff --git a/src/app.py b/src/app.py",
+            "@@ -1,5 +1,5 @@",
+            "-old line",
+            "+new line",
+            " context",
+            "diff --git a/yarn.lock b/yarn.lock",
+            "index abc..def 100644",
+            "--- a/yarn.lock",
+            "+++ b/yarn.lock",
+            "@@ -1,200 +1,200 @@",
+        ]
+        for i in range(200):
+            lines.append(f"+pkg-{i}@^{i}.0.0:")
+        output = "\n".join(lines)
+        result = self.p.process("git diff", output)
+        # Normal file is preserved
+        assert "app.py" in result
+        assert "+new line" in result
+        # Lockfile is summarized
+        assert "lockfile changed" in result
+        assert "yarn.lock" in result
+
+    def test_normal_files_only_unchanged(self):
+        """Diffs with only normal files should be compressed normally."""
+        output = "\n".join(
+            [
+                "diff --git a/src/app.py b/src/app.py",
+                "@@ -1,3 +1,3 @@",
+                "-old",
+                "+new",
+                " context",
+            ]
+        )
+        result = self.p.process("git diff", output)
+        assert "lockfile" not in result
+        assert "+new" in result
+
+
 class TestBuildBunCanHandle:
     """Test bun command handling in build processor."""
 
@@ -2608,6 +2951,54 @@ class TestBuildWarningSamples:
         assert "issue-4" in result
         # The 6th warning should not be a sample
         assert "  WARNING: issue-5" not in result
+
+
+class TestTscTypecheck:
+    """Tests for tsc --noEmit type-check grouping."""
+
+    def setup_method(self):
+        self.p = BuildOutputProcessor()
+
+    def test_tsc_noemit_errors_grouped(self):
+        """tsc --noEmit with many errors should group by code."""
+        lines = []
+        for i in range(30):
+            lines.append(f"src/file{i}.ts(10,5): error TS2322: Type 'string' is not assignable.")
+        for i in range(15):
+            lines.append(
+                f"src/util{i}.ts:5:3 - error TS2345: Argument of type 'number' not assignable."
+            )
+        for i in range(5):
+            lines.append(
+                f"src/other{i}.ts(1,1): error TS7006: Parameter implicitly has 'any' type."
+            )
+        lines.append("Found 50 errors in 50 files.")
+        output = "\n".join(lines)
+        result = self.p.process("tsc --noEmit", output)
+        assert "50 type errors across 3 codes" in result
+        assert "TS2322: 30 occurrences" in result
+        assert "TS2345: 15 occurrences" in result
+        assert "Found 50 errors" in result
+
+    def test_tsc_build_unchanged(self):
+        """tsc (without --noEmit) should use existing build logic."""
+        output = "Build succeeded.\nDone in 2.5s."
+        result = self.p.process("tsc", output)
+        # Should not trigger typecheck grouping
+        assert "type errors" not in result
+
+    def test_tsc_error_codes_preserved(self):
+        """Error codes and file paths should be preserved in examples."""
+        output = "\n".join(
+            [
+                "src/app.ts(10,5): error TS2322: Type 'string' is not assignable.",
+                "src/app.ts(20,3): error TS2322: Type 'number' is not assignable.",
+                "Found 2 errors.",
+            ]
+        )
+        result = self.p.process("tsc --noEmit", output)
+        assert "TS2322" in result
+        assert "src/app.ts" in result
 
 
 class TestBuildOutputPipeGuard:
@@ -2901,3 +3292,207 @@ class TestChainedCommandProcessorRouting:
         primary = extract_primary_command("cd /deploy && kubectl get pods")
         assert primary == "kubectl get pods"
         assert p.can_handle(primary)
+
+
+class TestAnsibleProcessor:
+    def setup_method(self):
+        self.p = AnsibleProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("ansible-playbook site.yml")
+        assert self.p.can_handle("ansible all -m ping")
+        assert not self.p.can_handle("git status")
+
+    def test_empty_output(self):
+        assert self.p.process("ansible-playbook site.yml", "") == ""
+
+    def test_short_output_unchanged(self):
+        output = "\n".join(f"line {i}" for i in range(15))
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert result == output
+
+    def test_all_ok_compressed(self):
+        """Playbook with all ok tasks should compress to headers + recap."""
+        lines = []
+        lines.append("PLAY [all] ****")
+        lines.append("*" * 60)
+        for i in range(30):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append("*" * 60)
+            for h in range(20):
+                lines.append(f"ok: [host-{h}]")
+        lines.append("PLAY RECAP ****")
+        for h in range(20):
+            lines.append(f"host-{h}  : ok=30   changed=0    unreachable=0    failed=0")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "ok" in result
+        assert "PLAY RECAP" in result
+        # All 600 ok lines should be counted
+        assert "600 ok" in result
+        assert len(result) < len(output)
+
+    def test_failed_tasks_preserved(self):
+        """Failed tasks should be fully preserved with error messages."""
+        lines = []
+        lines.append("PLAY [webservers] ****")
+        for i in range(5):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append(f"ok: [host-{i}]")
+        lines.append("TASK [deploy] ****")
+        lines.append('fatal: [host-1]: FAILED! => {"msg": "Connection refused"}')
+        lines.append("TASK [rollback] ****")
+        lines.append("changed: [host-1]")
+        lines.append("PLAY RECAP ****")
+        lines.append("host-1  : ok=5   changed=1    unreachable=0    failed=1")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "FAILED" in result
+        assert "Connection refused" in result
+        assert "changed:" in result
+        assert "host-1" in result
+
+    def test_changed_tasks_preserved(self):
+        """Changed tasks should be kept in output."""
+        lines = ["PLAY [all] ****", "*" * 60]
+        for i in range(10):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append("*" * 60)
+            lines.append(f"ok: [host-{i}]")
+        lines.append("TASK [update] ****")
+        lines.append("*" * 60)
+        lines.append("changed: [host-0]")
+        lines.append("PLAY RECAP ****")
+        lines.append("host-0  : ok=10   changed=1")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "changed:" in result
+
+    def test_recap_host_names_preserved(self):
+        """Host names in RECAP should be preserved."""
+        lines = ["PLAY [all] ****", "*" * 60]
+        for i in range(25):
+            lines.append(f"TASK [task-{i}] ****")
+            lines.append(f"ok: [prod-server-{i}]")
+        lines.append("PLAY RECAP ****")
+        lines.append("prod-server-0  : ok=25   changed=0    unreachable=0    failed=0")
+        lines.append("prod-server-1  : ok=25   changed=0    unreachable=0    failed=0")
+        output = "\n".join(lines)
+        result = self.p.process("ansible-playbook site.yml", output)
+        assert "prod-server-0" in result
+        assert "prod-server-1" in result
+
+
+class TestHelmProcessor:
+    def setup_method(self):
+        self.p = HelmProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("helm install myrelease mychart")
+        assert self.p.can_handle("helm upgrade myrelease mychart")
+        assert self.p.can_handle("helm list")
+        assert self.p.can_handle("helm template mychart")
+        assert self.p.can_handle("helm status myrelease")
+        assert self.p.can_handle("helm history myrelease")
+        assert not self.p.can_handle("git status")
+
+    def test_empty_output(self):
+        assert self.p.process("helm install x y", "") == ""
+
+    def test_template_many_manifests_summarized(self):
+        """helm template with 500 lines, 8 manifests should be summarized."""
+        lines = []
+        for i in range(8):
+            lines.append("---")
+            lines.append(f"kind: {'Deployment' if i < 3 else 'Service'}")
+            lines.append("metadata:")
+            lines.append(f"  name: app-{i}")
+            for j in range(60):
+                lines.append(f"  field{j}: value{j}")
+        output = "\n".join(lines)
+        result = self.p.process("helm template mychart", output)
+        assert "8 manifests" in result
+        assert "Deployment" in result
+        assert "Service" in result
+        assert len(result.splitlines()) < 20
+
+    def test_install_notes_omitted(self):
+        """helm install with NOTES section should omit NOTES."""
+        lines = [
+            "NAME: myrelease",
+            "NAMESPACE: default",
+            "STATUS: deployed",
+            "REVISION: 1",
+            "NOTES:",
+        ]
+        for i in range(30):
+            lines.append(f"  Get the application URL by running line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("helm install myrelease mychart", output)
+        assert "STATUS: deployed" in result
+        assert "NOTES section omitted" in result
+        assert "Get the application URL" not in result
+
+    def test_list_many_releases_truncated(self):
+        """helm list with 50 releases should be truncated."""
+        lines = ["NAME\tNAMESPACE\tREVISION\tSTATUS"]
+        for i in range(50):
+            lines.append(f"release-{i}\tdefault\t1\tdeployed")
+        output = "\n".join(lines)
+        result = self.p.process("helm list", output)
+        assert "more releases" in result
+        assert len(result.splitlines()) < 25
+
+    def test_short_output_unchanged(self):
+        """Short output should not be compressed."""
+        output = "NAME: myrelease\nSTATUS: deployed"
+        result = self.p.process("helm install x y", output)
+        assert result == output
+
+
+class TestSyslogProcessor:
+    def setup_method(self):
+        self.p = SyslogProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("journalctl -u nginx")
+        assert self.p.can_handle("dmesg")
+        assert not self.p.can_handle("git status")
+
+    def test_empty_output(self):
+        assert self.p.process("journalctl", "") == ""
+
+    def test_short_output_unchanged(self):
+        output = "\n".join(f"line {i}" for i in range(25))
+        result = self.p.process("dmesg", output)
+        assert result == output
+
+    def test_journalctl_with_errors(self):
+        """journalctl with 500 lines and errors should preserve errors."""
+        lines = []
+        for i in range(500):
+            if i == 250:
+                lines.append("Mar 17 10:00:00 host nginx[1234]: ERROR: connection refused")
+            elif i == 251:
+                lines.append("Mar 17 10:00:01 host nginx[1234]: retrying connection")
+            elif i == 300:
+                lines.append("Mar 17 10:05:00 host nginx[1234]: fatal: out of memory")
+            else:
+                lines.append(f"Mar 17 10:00:00 host nginx[1234]: normal log line {i}")
+        output = "\n".join(lines)
+        result = self.p.process("journalctl -u nginx", output)
+        assert "ERROR" in result
+        assert "fatal" in result
+        assert len(result) < len(output)
+
+    def test_dmesg_no_errors_truncated(self):
+        """dmesg with 200 lines and no errors should show head + tail."""
+        lines = [f"[{i}.000000] Normal kernel message {i}" for i in range(200)]
+        output = "\n".join(lines)
+        result = self.p.process("dmesg", output)
+        assert "truncated" in result
+        # Head preserved
+        assert "Normal kernel message 0" in result
+        # Tail preserved
+        assert "Normal kernel message 199" in result
+        assert len(result) < len(output)
