@@ -6,10 +6,11 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Avg Savings](docs/assets/badge-savings.svg)](docs/processors/)
 
-**Content-aware output compression for AI coding assistants.**
-Replaces blind truncation with intelligent, per-command strategies — preserving what the model needs, discarding what it doesn't.
+**Cut your AI coding costs by 60-99% on CLI output — without losing a single error message.**
 
-Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. Deterministic.
+21 specialized processors understand git, pytest, docker, terraform, kubectl, helm, ansible, and more. Each one knows what to keep and what to discard: errors, diffs, and actionable data stay; progress bars, passing tests, and boilerplate go.
+
+Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. Fully deterministic. One install, instant savings.
 
 ### Before & After
 
@@ -20,18 +21,16 @@ Compatible with **Claude Code** and **Gemini CLI**. Zero latency. No LLM calls. 
 | `npm install` (220 packages) | 3,844 tokens | 4 tokens | **99%** |
 | `terraform plan` (15 resources) | 1,840 tokens | 137 tokens | **93%** |
 | `kubectl get pods` (40 pods) | 1,393 tokens | 79 tokens | **94%** |
+| `docker compose logs` (4 services) | 3,200 tokens | 480 tokens | **85%** |
+| `helm template` (12 manifests) | 2,100 tokens | 210 tokens | **90%** |
 
 > Run `token-saver benchmark <command>` to measure savings on your own workloads.
 
 ## Why
 
-AI assistants in CLI consume tokens on every command output.
-A 500-line `git diff`, a `pytest` run with 200 passing tests, an `npm install`
-with 80 packages: everything is sent as-is to the model, which only needs
-the actionable information (errors, modified files, results).
+Every CLI command your AI assistant runs burns tokens — and most of that output is noise. A 500-line `git diff`, a `pytest` run with 200 passing tests, an `npm install` with 80 packages: the model only needs errors, modified files, and results. Everything else is wasted context and wasted money.
 
-Token-Saver intercepts these outputs and compresses them before they reach
-the model, preserving 100% of useful information.
+Token-Saver sits between the CLI and your AI assistant, compressing output with content-aware strategies. The model sees exactly what it needs — nothing more, nothing less. Your context window stays clean, your costs drop, and your assistant responds faster with less noise to process.
 
 ## How It Compares
 
@@ -97,11 +96,15 @@ Gemini CLI allows direct output replacement through the deny/reason mechanism.
 
 ### Precision Guarantees
 
+Compression is aggressive on noise, conservative on signal:
+
 - Short outputs (< 200 characters) are **never** modified
 - Compression is only applied if the gain exceeds 10%
 - All errors, stack traces, and actionable information are **fully preserved**
+- Source code files (`cat *.py`, `cat *.ts`, ...) pass through **unchanged** — the model needs exact content
+- Secrets in `.env` files are automatically **redacted** before reaching the model
 - Only "noise" is removed: progress bars, passing tests, installation logs, ANSI codes, platform lines
-- 567 unit tests including precision-specific tests that verify every critical piece of data survives compression
+- 567 unit tests including 44 precision-specific tests that verify every critical piece of data survives compression
 
 ## Installation
 

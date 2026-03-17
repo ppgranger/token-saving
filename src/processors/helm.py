@@ -84,27 +84,25 @@ class HelmProcessor(Processor):
 
         result = []
         in_notes = False
+        notes_count = 0
 
         for line in lines:
             stripped = line.strip()
 
             if stripped.startswith("NOTES:"):
                 in_notes = True
-                result.append("[NOTES section omitted]")
+                notes_count = 0
                 continue
 
             if in_notes:
-                if (
-                    stripped
-                    and not line.startswith((" ", "\t"))
-                    and not stripped.startswith("NOTES:")
-                ):
-                    in_notes = False
-                    result.append(line)
+                notes_count += 1
                 continue
 
             if stripped:
                 result.append(line)
+
+        if notes_count > 0:
+            result.append(f"[NOTES section omitted ({notes_count} lines)]")
 
         return "\n".join(result) if result else output
 
