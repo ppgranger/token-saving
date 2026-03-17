@@ -2870,6 +2870,48 @@ class TestBuildWarningSamples:
         assert "  WARNING: issue-5" not in result
 
 
+class TestTscTypecheck:
+    """Tests for tsc --noEmit type-check grouping."""
+
+    def setup_method(self):
+        self.p = BuildOutputProcessor()
+
+    def test_tsc_noemit_errors_grouped(self):
+        """tsc --noEmit with many errors should group by code."""
+        lines = []
+        for i in range(30):
+            lines.append(f"src/file{i}.ts(10,5): error TS2322: Type 'string' is not assignable.")
+        for i in range(15):
+            lines.append(f"src/util{i}.ts:5:3 - error TS2345: Argument of type 'number' not assignable.")
+        for i in range(5):
+            lines.append(f"src/other{i}.ts(1,1): error TS7006: Parameter implicitly has 'any' type.")
+        lines.append("Found 50 errors in 50 files.")
+        output = "\n".join(lines)
+        result = self.p.process("tsc --noEmit", output)
+        assert "50 type errors across 3 codes" in result
+        assert "TS2322: 30 occurrences" in result
+        assert "TS2345: 15 occurrences" in result
+        assert "Found 50 errors" in result
+
+    def test_tsc_build_unchanged(self):
+        """tsc (without --noEmit) should use existing build logic."""
+        output = "Build succeeded.\nDone in 2.5s."
+        result = self.p.process("tsc", output)
+        # Should not trigger typecheck grouping
+        assert "type errors" not in result
+
+    def test_tsc_error_codes_preserved(self):
+        """Error codes and file paths should be preserved in examples."""
+        output = "\n".join([
+            "src/app.ts(10,5): error TS2322: Type 'string' is not assignable.",
+            "src/app.ts(20,3): error TS2322: Type 'number' is not assignable.",
+            "Found 2 errors.",
+        ])
+        result = self.p.process("tsc --noEmit", output)
+        assert "TS2322" in result
+        assert "src/app.ts" in result
+
+
 class TestBuildOutputPipeGuard:
     """Test that piped build commands bypass aggressive summarization."""
 
