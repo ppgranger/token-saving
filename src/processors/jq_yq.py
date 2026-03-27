@@ -52,26 +52,30 @@ class JqYqProcessor(Processor):
         # Streaming mode: one JSON value per line
         return self._process_streaming_json(lines)
 
+    @staticmethod
+    def _parse_json_keys(line: str) -> str | None:
+        try:
+            obj = json.loads(line.strip())
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(obj, dict):
+            return ",".join(sorted(obj.keys()))
+        return None
+
     def _process_streaming_json(self, lines: list[str]) -> str:
-        # Try to detect repeated structure
         structures: list[str] = []
         for line in lines[:5]:
-            try:
-                obj = json.loads(line.strip())
-                if isinstance(obj, dict):
-                    structures.append(",".join(sorted(obj.keys())))
-            except (json.JSONDecodeError, ValueError):
+            keys = self._parse_json_keys(line)
+            if keys is None:
                 break
+            structures.append(keys)
 
         # If all parsed lines have the same keys, it's a repeated structure
         if len(structures) >= 3 and len(set(structures)) == 1:
-            result = []
-            for line in lines[:3]:
-                result.append(line)
+            result = list(lines[:3])
             result.append(f"... ({len(lines) - 3} more items with same structure)")
             return "\n".join(result)
 
-        # Fallback: head + tail
         keep_head = 20
         keep_tail = 10
         if len(lines) <= keep_head + keep_tail:
@@ -96,16 +100,14 @@ class JqYqProcessor(Processor):
         result: list[str] = []
         array_count = 0
         array_indent: int | None = None
-        array_start_idx = 0
 
-        for i, line in enumerate(lines):
+        for line in lines:
             m = re.match(r"^(\s*)- ", line)
             if m:
                 indent = len(m.group(1))
                 if array_indent is None:
                     array_indent = indent
                     array_count = 1
-                    array_start_idx = len(result)
                     result.append(line)
                 elif indent == array_indent:
                     array_count += 1
@@ -113,11 +115,8 @@ class JqYqProcessor(Processor):
                         result.append(line)
                     elif array_count == 4:
                         result.append(f"{' ' * indent}  ... ({array_count} items so far)")
-                    # else: skip, we'll update the count later
-                else:
-                    # Different indent — nested item, keep if in visible range
-                    if array_count <= 3:
-                        result.append(line)
+                elif array_count <= 3:
+                    result.append(line)
             else:
                 # Non-array line — flush array count if needed
                 if array_count > 3:
@@ -147,7 +146,6 @@ class JqYqProcessor(Processor):
             summary += ") ---"
             return summary + "\n" + compressed
 
-        # Fallback: head + tail
         keep_head = 20
         keep_tail = 10
         result_lines = lines[:keep_head]

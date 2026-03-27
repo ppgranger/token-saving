@@ -181,7 +181,7 @@ class CargoProcessor(Processor):
             if count >= group_threshold:
                 result.append(f"warning: {wtype} ({count} occurrences)")
                 for block in blocks[:example_count]:
-                    result.extend(f"  {l}" for l in block)
+                    result.extend(f"  {line}" for line in block)
                 if count > example_count:
                     result.append(f"  ... ({count - example_count} more)")
             else:
@@ -205,15 +205,13 @@ class CargoProcessor(Processor):
                 compiling_count += 1
             elif _DOCUMENTING_RE.match(stripped):
                 documenting_count += 1
-            elif _FINISHED_RE.match(stripped):
-                result.append(line)
-            elif re.match(r"^\s*Generated\s+", stripped):
-                result.append(line)
-            elif re.search(r"\bwarning\b", stripped):
-                result.append(line)
-            elif _ERROR_START_RE.match(stripped):
-                result.append(line)
-            elif _SPAN_LINE_RE.match(stripped) and result:
+            elif (
+                _FINISHED_RE.match(stripped)
+                or re.match(r"^\s*Generated\s+", stripped)
+                or re.search(r"\bwarning\b", stripped)
+                or _ERROR_START_RE.match(stripped)
+                or (_SPAN_LINE_RE.match(stripped) and result)
+            ):
                 result.append(line)
 
         summary_parts = []
@@ -280,13 +278,12 @@ class CargoProcessor(Processor):
                 compiling_count += 1
             elif _RUNNING_RE.match(stripped):
                 continue
-            elif re.match(r"^test\s+.+\s+bench:", stripped):
-                result.append(line)
-            elif re.match(r"^test result:", stripped):
-                result.append(line)
-            elif _FINISHED_RE.match(stripped):
-                result.append(line)
-            elif _ERROR_START_RE.match(stripped):
+            elif (
+                re.match(r"^test\s+.+\s+bench:", stripped)
+                or re.match(r"^test result:", stripped)
+                or _FINISHED_RE.match(stripped)
+                or _ERROR_START_RE.match(stripped)
+            ):
                 result.append(line)
 
         if compiling_count > 0:

@@ -170,8 +170,6 @@ class GoProcessor(Processor):
             stripped = line.strip()
             if _GO_GENERATE_RUN_RE.match(stripped):
                 generate_count += 1
-            elif re.search(r"\b(error|Error|ERROR)\b", stripped):
-                result.append(line)
             elif stripped:
                 result.append(line)
 

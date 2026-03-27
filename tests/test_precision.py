@@ -1124,7 +1124,10 @@ class TestJqPrecision:
     def test_jq_preserves_top_level_structure(self):
         import json
         data = {
-            "users": [{"id": i, "name": f"user-{i}", "email": f"user{i}@test.com"} for i in range(50)],
+            "users": [
+                {"id": i, "name": f"user-{i}", "email": f"user{i}@test.com"}
+                for i in range(50)
+            ],
             "metadata": {"total": 50, "page": 1},
             "status": "ok",
         }

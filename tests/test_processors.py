@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.chain_utils import extract_primary_command
 from src.processors.ansible import AnsibleProcessor
 from src.processors.build_output import BuildOutputProcessor
+from src.processors.cargo import CargoProcessor
 from src.processors.cloud_cli import CloudCliProcessor
 from src.processors.db_query import DbQueryProcessor
 from src.processors.docker import DockerProcessor
@@ -17,20 +18,19 @@ from src.processors.file_listing import FileListingProcessor
 from src.processors.generic import GenericProcessor
 from src.processors.gh import GhProcessor
 from src.processors.git import GitProcessor
+from src.processors.go import GoProcessor
 from src.processors.helm import HelmProcessor
+from src.processors.jq_yq import JqYqProcessor
 from src.processors.kubectl import KubectlProcessor
 from src.processors.lint_output import LintOutputProcessor
 from src.processors.network import NetworkProcessor
 from src.processors.package_list import PackageListProcessor
 from src.processors.search import SearchProcessor
+from src.processors.ssh import SshProcessor
 from src.processors.syslog import SyslogProcessor
 from src.processors.system_info import SystemInfoProcessor
 from src.processors.terraform import TerraformProcessor
 from src.processors.test_output import TestOutputProcessor
-from src.processors.cargo import CargoProcessor
-from src.processors.go import GoProcessor
-from src.processors.jq_yq import JqYqProcessor
-from src.processors.ssh import SshProcessor
 
 
 class TestGitProcessor:
@@ -3563,9 +3563,9 @@ class TestCargoProcessor:
             warnings.extend([
                 f"warning: unused variable: `x{i}`",
                 f" --> src/file{i}.rs:{i + 1}:5",
-                f"  |",
+                "  |",
                 f"{i + 1} |     let x{i} = 42;",
-                f"  |         ^^ help: if this is intentional, prefix it with an underscore",
+                "  |         ^^ help: if this is intentional, prefix it with an underscore",
                 "",
             ])
         warnings.append("warning: `myapp` (lib) generated 6 warnings")
@@ -3852,7 +3852,10 @@ class TestJqYqProcessor:
 
     def test_jq_large_json_compressed(self):
         import json
-        data = [{"id": i, "name": f"item-{i}", "data": {"nested": "value" * 10}} for i in range(100)]
+        data = [
+            {"id": i, "name": f"item-{i}", "data": {"nested": "value" * 10}}
+            for i in range(100)
+        ]
         output = json.dumps(data, indent=2)
         assert len(output.splitlines()) > 50
         result = self.p.process("jq . file.json", output)

@@ -415,7 +415,6 @@ class TestProcessorRegistry:
             # JQ/YQ
             "jq . file.json",
             "yq . config.yaml",
-            # SSH/SCP (non-interactive)
             "ssh host 'ls -la'",
             "scp file.txt host:/tmp/",
         ]

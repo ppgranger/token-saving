@@ -45,26 +45,19 @@ class SshProcessor(Processor):
     def _process_scp(self, output: str) -> str:
         lines = output.splitlines()
         result: list[str] = []
-        current_file: str | None = None
         last_progress: str | None = None
 
         for line in lines:
             stripped = line.strip()
 
             if _SCP_PROGRESS_RE.match(stripped):
-                # Track the file from the progress line
-                parts = stripped.split()
-                if parts:
-                    current_file = parts[0]
                 last_progress = line
             elif re.search(r"\b(error|Error|ERROR|denied|refused|No such)\b", stripped):
                 result.append(line)
             elif stripped and not _SCP_PROGRESS_RE.match(stripped):
-                # Flush last progress for previous file
                 if last_progress:
                     result.append(last_progress)
                     last_progress = None
-                    current_file = None
                 result.append(line)
 
         # Flush final progress line
