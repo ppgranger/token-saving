@@ -1032,19 +1032,21 @@ class TestCargoPrecision:
 
     def test_cargo_build_preserves_all_errors_with_spans(self):
         lines = [f"   Compiling dep-{i} v1.0.{i}" for i in range(100)]
-        lines.extend([
-            "error[E0308]: mismatched types",
-            " --> src/main.rs:10:5",
-            "  |",
-            "10 |     let x: i32 = \"hello\";",
-            "  |                  ^^^^^^^ expected i32, found &str",
-            "",
-            "error[E0425]: cannot find value `y`",
-            " --> src/lib.rs:20:10",
-            "  |",
-            "20 |     y + 1",
-            "  |     ^ not found in this scope",
-        ])
+        lines.extend(
+            [
+                "error[E0308]: mismatched types",
+                " --> src/main.rs:10:5",
+                "  |",
+                '10 |     let x: i32 = "hello";',
+                "  |                  ^^^^^^^ expected i32, found &str",
+                "",
+                "error[E0425]: cannot find value `y`",
+                " --> src/lib.rs:20:10",
+                "  |",
+                "20 |     y + 1",
+                "  |     ^ not found in this scope",
+            ]
+        )
         output = "\n".join(lines)
         compressed, proc, was_compressed = self.engine.compress("cargo build", output)
         assert was_compressed
@@ -1059,17 +1061,21 @@ class TestCargoPrecision:
     def test_cargo_build_preserves_warning_types(self):
         warnings = []
         for i in range(10):
-            warnings.extend([
-                f"warning: unused variable: `var{i}`",
-                f" --> src/file{i}.rs:{i + 1}:5",
-                "",
-            ])
+            warnings.extend(
+                [
+                    f"warning: unused variable: `var{i}`",
+                    f" --> src/file{i}.rs:{i + 1}:5",
+                    "",
+                ]
+            )
         for i in range(5):
-            warnings.extend([
-                f"warning: unused import: `mod{i}`",
-                f" --> src/lib.rs:{i + 10}:5",
-                "",
-            ])
+            warnings.extend(
+                [
+                    f"warning: unused import: `mod{i}`",
+                    f" --> src/lib.rs:{i + 10}:5",
+                    "",
+                ]
+            )
         warnings.append("warning: `myapp` (lib) generated 15 warnings")
         warnings.append("    Finished dev [unoptimized + debuginfo] target(s)")
         output = "\n".join(warnings)
@@ -1088,13 +1094,15 @@ class TestGoPrecision:
     def test_go_build_preserves_all_errors(self):
         # Need enough package headers to trigger compression (multi-package build)
         lines = [f"# myapp/pkg/module{i}" for i in range(10)]
-        lines.extend([
-            "# myapp/pkg/handler",
-            "pkg/handler/main.go:15:2: undefined: DoSomething",
-            "pkg/handler/main.go:20:10: cannot use x (variable of type string) as int",
-            "# myapp/pkg/db",
-            "pkg/db/conn.go:5:3: imported and not used: \"fmt\"",
-        ])
+        lines.extend(
+            [
+                "# myapp/pkg/handler",
+                "pkg/handler/main.go:15:2: undefined: DoSomething",
+                "pkg/handler/main.go:20:10: cannot use x (variable of type string) as int",
+                "# myapp/pkg/db",
+                'pkg/db/conn.go:5:3: imported and not used: "fmt"',
+            ]
+        )
         output = "\n".join(lines)
         compressed, proc, was_compressed = self.engine.compress("go build ./...", output)
         assert was_compressed
@@ -1123,10 +1131,10 @@ class TestJqPrecision:
 
     def test_jq_preserves_top_level_structure(self):
         import json
+
         data = {
             "users": [
-                {"id": i, "name": f"user-{i}", "email": f"user{i}@test.com"}
-                for i in range(50)
+                {"id": i, "name": f"user-{i}", "email": f"user{i}@test.com"} for i in range(50)
             ],
             "metadata": {"total": 50, "page": 1},
             "status": "ok",

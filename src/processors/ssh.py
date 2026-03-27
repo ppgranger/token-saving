@@ -5,9 +5,7 @@ import re
 from .base import Processor
 from .utils import compress_log_lines
 
-_SSH_NON_INTERACTIVE_RE = re.compile(
-    r"""\bssh\s+.+\s+['"]"""
-)
+_SSH_NON_INTERACTIVE_RE = re.compile(r"""\bssh\s+.+\s+['"]""")
 _SCP_RE = re.compile(r"\bscp\b")
 _SCP_PROGRESS_RE = re.compile(r"^\s*\S+\s+\d+%")
 
