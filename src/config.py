@@ -48,6 +48,11 @@ _DEFAULTS = {
     "db_prune_days": 90,
     "chars_per_token": 4,
     "user_processors_dir": "",
+    "cargo_warning_example_count": 2,
+    "cargo_warning_group_threshold": 3,
+    "jq_passthrough_threshold": 50,
+    "disabled_processors": [],
+    "max_chain_depth": 3,
     "debug": False,
 }
 
@@ -126,6 +131,8 @@ def _load_config() -> dict[str, Any]:
             elif isinstance(default_val, float):
                 with contextlib.suppress(ValueError):
                     config[key] = float(env_val)
+            elif isinstance(default_val, list):
+                config[key] = [s.strip() for s in env_val.split(",") if s.strip()]
             else:
                 config[key] = env_val
             config.setdefault("_config_source", {})[key] = f"env:{env_key}"
