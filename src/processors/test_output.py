@@ -38,10 +38,16 @@ class TestOutputProcessor(Processor):
 
         lines = output.splitlines()
 
-        if re.search(rf"\bpytest\b|py\.test|{PYTHON_CMD}\s+-m\s+pytest|\b(poetry|uv|pipx)\s+run\s+pytest", command):
+        if re.search(
+            rf"\bpytest\b|py\.test|{PYTHON_CMD}\s+-m\s+pytest"
+            r"|\b(poetry|uv|pipx)\s+run\s+pytest",
+            command,
+        ):
             return self._process_pytest(lines)
         if re.search(
-            r"\bjest\b|\bvitest\b|\bnpm\s+test\b|\byarn\s+test\b|\bpnpm\s+test\b|\bnpx\s+(jest|vitest)\b", command
+            r"\bjest\b|\bvitest\b|\bnpm\s+test\b|\byarn\s+test\b"
+            r"|\bpnpm\s+test\b|\bnpx\s+(jest|vitest)\b",
+            command,
         ):
             return self._process_jest(lines)
         if re.search(r"\bcargo\s+test\b", command):
